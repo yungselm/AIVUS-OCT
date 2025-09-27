@@ -90,8 +90,39 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         elliptic_ratio = [0] * main_window.metadata['num_frames']
         vector_length = [0] * main_window.metadata['num_frames']
         vector_angle = [0] * main_window.metadata['num_frames']
-    lumen_x = [contour[0] if contour is not None else None for contour in main_window.display.full_contours]
-    lumen_y = [contour[1] if contour is not None else None for contour in main_window.display.full_contours]
+
+    # Get the *per-frame* full-contours for lumen in a defensive way.
+    # display.get_full_contour_list handles legacy list vs new dict.
+    lumen_full_list = None
+    try:
+        lumen_full_list = main_window.display.get_full_contour_list(  # returns list or None
+            None  # get_full_contour_list accepts optional contour_type; when passed None it will default to active in earlier design,
+                # but we want lumen explicitly — use ContourType.LUMEN if the symbol is available.
+        )
+    except Exception:
+        lumen_full_list = None
+
+    # Prefer explicit access by key if possible (works with new dict format)
+    if getattr(main_window.display, "full_contours", None) is not None and isinstance(main_window.display.full_contours, dict):
+        lumen_full_list = main_window.display.full_contours.get("lumen", None)
+
+    # If still None, try helper for backwards compatibility
+    if lumen_full_list is None:
+        try:
+            from gui.left_half.IVUS_display import ContourType
+            lumen_full_list = main_window.display.get_full_contour_list(ContourType.LUMEN)
+        except Exception:
+            # fallback: maybe full_contours is still a list (legacy)
+            lumen_full_list = getattr(main_window.display, "full_contours", None)
+
+    # Now build lumen_x/lumen_y defensively
+    if lumen_full_list is None:
+        nframes = main_window.metadata.get("num_frames", 0)
+        lumen_x = [None] * nframes
+        lumen_y = [None] * nframes
+    else:
+        lumen_x = [contour[0] if (contour is not None and len(contour) >= 2) else None for contour in lumen_full_list]
+        lumen_y = [contour[1] if (contour is not None and len(contour) >= 2) else None for contour in lumen_full_list]    
 
     for frame in contoured_frames:
         if lumen_area[frame] and elliptic_ratio[frame] != 0:  # values already computed for this frame -> skip

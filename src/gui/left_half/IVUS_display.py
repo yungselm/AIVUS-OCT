@@ -274,7 +274,6 @@ class IVUSDisplay(QGraphicsView):
             lower_bound = self.window_level - self.window_width / 2
             upper_bound = self.window_level + self.window_width / 2
 
-            # Clip and normalize pixel values
             normalised_data = np.clip(self.images[self.frame, :, :], lower_bound, upper_bound)
             normalised_data = ((normalised_data - lower_bound) / (upper_bound - lower_bound) * 255).astype(np.uint8)
             height, width = normalised_data.shape
@@ -344,11 +343,10 @@ class IVUSDisplay(QGraphicsView):
                     if contour_data and contour_data[0][self.frame]:
                         self.draw_contour(contour_data, contour_type=ct, set_current=(ct == self.active_contour_type))
 
-                # 3) Draw measures and reference (unchanged)
                 self.draw_measure()
                 self.draw_reference()
 
-                # 4) Compute metrics ALWAYS from lumen_contour (defensive)
+                # Compute metrics ALWAYS from lumen_contour (defensive)
                 if self.lumen_contour is not None and self.lumen_contour.full_contour[0] is not None:
                     lumen_x, lumen_y = self.lumen_contour.get_unscaled_contour(self.scaling_factor)
                     polygon = Polygon([(x, y) for x, y in zip(lumen_x, lumen_y)])

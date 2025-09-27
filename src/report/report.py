@@ -59,6 +59,196 @@ def report(main_window, lower_limit=None, upper_limit=None, suppress_messages=Fa
     return report_data
 
 
+# def compute_all(main_window, contoured_frames, suppress_messages, plot=True, save_as_csv=True):
+#     """compute all metrics and plot if desired"""
+#     if not suppress_messages:
+#         progress = QProgressDialog(main_window)
+#         progress.setWindowFlags(Qt.Dialog)
+#         progress.setModal(True)
+#         progress.setMinimum(0)
+#         progress.setMaximum(len(contoured_frames))
+#         progress.resize(500, 100)
+#         progress.setValue(0)
+#         progress.setWindowTitle('Writing report...')
+#         progress.show()
+
+#     longest_distance = main_window.data['longest_distance']
+#     farthest_x = main_window.data['farthest_point'][0]
+#     farthest_y = main_window.data['farthest_point'][1]
+#     shortest_distance = main_window.data['shortest_distance']
+#     nearest_x = main_window.data['nearest_point'][0]
+#     nearest_y = main_window.data['nearest_point'][1]
+#     lumen_area = main_window.data['lumen_area']
+#     lumen_circumf = main_window.data['lumen_circumf']
+#     centroid_x = main_window.data['lumen_centroid'][0]
+#     centroid_y = main_window.data['lumen_centroid'][1]
+#     try:  # these entries were added later -> might be missing in older data dicts
+#         elliptic_ratio = main_window.data['elliptic_ratio']
+#         vector_length = main_window.data['vector_length']
+#         vector_angle = main_window.data['vector_angle']
+#     except KeyError:
+#         elliptic_ratio = [0] * main_window.metadata['num_frames']
+#         vector_length = [0] * main_window.metadata['num_frames']
+#         vector_angle = [0] * main_window.metadata['num_frames']
+
+#     # Get the *per-frame* full-contours for lumen in a defensive way.
+#     # display.get_full_contour_list handles legacy list vs new dict.
+#     lumen_full_list = None
+#     try:
+#         lumen_full_list = main_window.display.get_full_contour_list(  # returns list or None
+#             None  # get_full_contour_list accepts optional contour_type; when passed None it will default to active in earlier design,
+#                 # but we want lumen explicitly — use ContourType.LUMEN if the symbol is available.
+#         )
+#     except Exception:
+#         lumen_full_list = None
+
+#     # Prefer explicit access by key if possible (works with new dict format)
+#     if getattr(main_window.display, "full_contours", None) is not None and isinstance(main_window.display.full_contours, dict):
+#         lumen_full_list = main_window.display.full_contours.get("lumen", None)
+
+#     # If still None, try helper for backwards compatibility
+#     if lumen_full_list is None:
+#         try:
+#             from gui.left_half.IVUS_display import ContourType
+#             lumen_full_list = main_window.display.get_full_contour_list(ContourType.LUMEN)
+#         except Exception:
+#             # fallback: maybe full_contours is still a list (legacy)
+#             lumen_full_list = getattr(main_window.display, "full_contours", None)
+
+#     # Now build lumen_x/lumen_y defensively
+#     if lumen_full_list is None:
+#         nframes = main_window.metadata.get("num_frames", 0)
+#         lumen_x = [None] * nframes
+#         lumen_y = [None] * nframes
+#     else:
+#         lumen_x = [contour[0] if (contour is not None and len(contour) >= 2) else None for contour in lumen_full_list]
+#         lumen_y = [contour[1] if (contour is not None and len(contour) >= 2) else None for contour in lumen_full_list]    
+
+#     for frame in contoured_frames:
+#         if lumen_area[frame] and elliptic_ratio[frame] != 0:  # values already computed for this frame -> skip
+#             continue
+
+#         polygon = Polygon([(x, y) for x, y in zip(lumen_x[frame], lumen_y[frame])])
+#         exterior_coords = polygon.exterior.coords
+
+#         lumen_area[frame], lumen_circumf[frame], centroid_x[frame], centroid_y[frame] = compute_polygon_metrics(
+#             main_window, polygon, frame
+#         )
+#         longest_distance[frame], farthest_x[frame], farthest_y[frame] = farthest_points(
+#             main_window, exterior_coords, frame
+#         )
+#         shortest_distance[frame], nearest_x[frame], nearest_y[frame] = closest_points(main_window, polygon, frame)
+#         if shortest_distance[frame] != 0:
+#             elliptic_ratio[frame] = longest_distance[frame] / shortest_distance[frame]
+#         vector_length[frame], vector_angle[frame] = centroid_center_vector(
+#             main_window, centroid_x[frame], centroid_y[frame]
+#         )
+#         if not suppress_messages:
+#             progress.setValue(frame)
+#             if progress.wasCanceled():
+#                 return None
+
+#     report_data = pd.DataFrame()
+#     report_data['frame'] = [
+#         frame + 1 for frame in contoured_frames
+#     ]  # want 1-based indexing for direct comparison with GUI
+#     # since frame_start is not at 0, we must shift position by pullback_start_frame
+#     report_data['position'] = 0
+#     n_frames = main_window.metadata.get('num_frames', len(contoured_frames))
+#     start_frame = main_window.metadata['pullback_start_frame']
+#     if start_frame <= 0.25 * n_frames:
+#         # subtract the offset for frames before the true start
+#         offset = main_window.metadata['pullback_length'][start_frame - 1]
+#         report_data['position'] = [
+#             main_window.metadata['pullback_length'][frame] for frame in contoured_frames
+#             ]
+#         report_data['position'] = report_data['position'] - offset
+#     else:
+#         report_data['position'] = [
+#             main_window.metadata['pullback_length'][frame] for frame in contoured_frames
+#             ]
+#     report_data['position'] = report_data['position'].apply(lambda x: max(x, 0))
+#     report_data['phase'] = [main_window.data['phases'][frame] for frame in contoured_frames]
+#     report_data['lumen_area'] = [lumen_area[frame] for frame in contoured_frames]
+#     report_data['lumen_circumf'] = [lumen_circumf[frame] for frame in contoured_frames]
+#     report_data['longest_distance'] = [longest_distance[frame] for frame in contoured_frames]
+#     report_data['shortest_distance'] = [shortest_distance[frame] for frame in contoured_frames]
+#     report_data['elliptic_ratio'] = [elliptic_ratio[frame] for frame in contoured_frames]
+#     report_data['vector_length'] = [vector_length[frame] for frame in contoured_frames]
+#     report_data['vector_angle'] = [vector_angle[frame] for frame in contoured_frames]
+#     report_data['measurement_1'] = [main_window.data['measure_lengths'][frame][0] for frame in contoured_frames]
+#     report_data['measurement_2'] = [main_window.data['measure_lengths'][frame][1] for frame in contoured_frames]
+#     main_window.data['elliptic_ratio'] = elliptic_ratio
+#     main_window.data['vector_length'] = vector_length
+#     main_window.data['vector_angle'] = vector_angle
+
+#     if save_as_csv:  # write centered contours to .csv files
+#         save_csv_files(main_window, lumen_x, lumen_y, name='diastolic', frames=main_window.gated_frames_dia)
+#         save_csv_files(main_window, lumen_x, lumen_y, name='systolic', frames=main_window.gated_frames_sys)
+#     if not suppress_messages:
+#         progress.close()
+
+#     if plot:
+#         index_1 = int(len(contoured_frames) * 0.2)
+#         index_2 = int(len(contoured_frames) * 0.4)
+#         index_3 = int(len(contoured_frames) * 0.6)
+#         index_4 = int(len(contoured_frames) * 0.8)
+#         indices_to_plot = [index_1, index_2, index_3, index_4]
+#         frames_to_plot = [contoured_frames[frame] for frame in indices_to_plot]
+#         fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+
+#         for index, frame in enumerate(frames_to_plot):
+#             ax = axes[index // 2, index % 2]
+#             ax.plot(
+#                 lumen_x[frame],
+#                 lumen_y[frame],
+#                 '-g',
+#                 linewidth=2,
+#                 label='Contour',
+#             )
+#             ax.plot(centroid_x[frame], centroid_y[frame], 'ro', markersize=8, label='Centroid')
+#             ax.plot(farthest_x[frame][0], farthest_y[frame][0], 'bo', markersize=8, label='Farthest Point 1')
+#             ax.plot(farthest_x[frame][1], farthest_y[frame][1], 'bo', markersize=8, label='Farthest Point 2')
+#             ax.plot(nearest_x[frame][0], nearest_y[frame][0], 'yo', markersize=8, label='Nearest Point 1')
+#             ax.plot(nearest_x[frame][1], nearest_y[frame][1], 'yo', markersize=8, label='Nearest Point 2')
+
+#             # Annotate with shortest and longest distances
+#             ax.annotate(
+#                 f'Shortest Distance: {shortest_distance[frame]:.2f} mm',
+#                 xy=(centroid_x[frame], centroid_y[frame]),
+#                 xycoords='data',
+#                 xytext=(10, 30),
+#                 textcoords='offset points',
+#                 arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=.2'),
+#             )
+
+#             ax.annotate(
+#                 f'Longest Distance: {longest_distance[frame]:.2f} mm',
+#                 xy=(centroid_x[frame], centroid_y[frame]),
+#                 xycoords='data',
+#                 xytext=(10, -30),
+#                 textcoords='offset points',
+#                 arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=-.2'),
+#             )
+
+#             ax.annotate(
+#                 f'Lumen Area: {lumen_area[frame]:.2f} mm\N{SUPERSCRIPT TWO}\nElliptic Ratio: {longest_distance[frame]/shortest_distance[frame]:.2f}',
+#                 xy=(centroid_x[frame], centroid_y[frame]),
+#                 xycoords='data',
+#                 xytext=(10, 0),
+#                 textcoords='offset points',
+#                 arrowprops=dict(arrowstyle='->', connectionstyle='arc3,rad=0'),
+#             )
+
+#             ax.legend(loc='upper right')
+#             ax.invert_yaxis()
+#             ax.grid()
+#             ax.set_title(f'Frame {frame + 1}')
+
+#         fig.tight_layout()
+#         fig.show()
+
+#     return report_data
 def compute_all(main_window, contoured_frames, suppress_messages, plot=True, save_as_csv=True):
     """compute all metrics and plot if desired"""
     if not suppress_messages:
@@ -72,6 +262,7 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         progress.setWindowTitle('Writing report...')
         progress.show()
 
+    # existing metric lists (may be references into main_window.data)
     longest_distance = main_window.data['longest_distance']
     farthest_x = main_window.data['farthest_point'][0]
     farthest_y = main_window.data['farthest_point'][1]
@@ -91,41 +282,66 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         vector_length = [0] * main_window.metadata['num_frames']
         vector_angle = [0] * main_window.metadata['num_frames']
 
-    # Get the *per-frame* full-contours for lumen in a defensive way.
-    # display.get_full_contour_list handles legacy list vs new dict.
-    lumen_full_list = None
-    try:
-        lumen_full_list = main_window.display.get_full_contour_list(  # returns list or None
-            None  # get_full_contour_list accepts optional contour_type; when passed None it will default to active in earlier design,
-                # but we want lumen explicitly — use ContourType.LUMEN if the symbol is available.
-        )
-    except Exception:
-        lumen_full_list = None
+    # helper to fetch per-type full_contours defensively
+    def _get_full_list_by_name(name):
+        fc = getattr(main_window.display, "full_contours", None)
+        if fc is None:
+            return None
+        if isinstance(fc, dict):
+            return fc.get(name, None)
+        if isinstance(fc, list):
+            return fc
+        return None
 
-    # Prefer explicit access by key if possible (works with new dict format)
-    if getattr(main_window.display, "full_contours", None) is not None and isinstance(main_window.display.full_contours, dict):
-        lumen_full_list = main_window.display.full_contours.get("lumen", None)
-
-    # If still None, try helper for backwards compatibility
+    # Lumen full contours (defensive)
+    lumen_full_list = _get_full_list_by_name("lumen")
+    # Fallback: try display.get_full_contour_list for backward compatibility
     if lumen_full_list is None:
         try:
             from gui.left_half.IVUS_display import ContourType
             lumen_full_list = main_window.display.get_full_contour_list(ContourType.LUMEN)
         except Exception:
-            # fallback: maybe full_contours is still a list (legacy)
             lumen_full_list = getattr(main_window.display, "full_contours", None)
 
-    # Now build lumen_x/lumen_y defensively
-    if lumen_full_list is None:
-        nframes = main_window.metadata.get("num_frames", 0)
-        lumen_x = [None] * nframes
-        lumen_y = [None] * nframes
-    else:
-        lumen_x = [contour[0] if (contour is not None and len(contour) >= 2) else None for contour in lumen_full_list]
-        lumen_y = [contour[1] if (contour is not None and len(contour) >= 2) else None for contour in lumen_full_list]    
+    # Build other contour full lists (eem, calcium, branch) for CSV saving / optional metrics
+    eem_full_list = _get_full_list_by_name("eem")
+    calc_full_list = _get_full_list_by_name("calcium")  # "calcium" used in display keys
+    branch_full_list = _get_full_list_by_name("branch")
+
+    # Turn full-list (list-of-(x,y) tuples or None) into per-frame x/y lists (None where missing)
+    def build_xy_lists(full_list):
+        if full_list is None:
+            nframes = main_window.metadata.get("num_frames", 0)
+            return [None] * nframes, [None] * nframes
+        x_list = [contour[0] if (contour is not None and len(contour) >= 2) else None for contour in full_list]
+        y_list = [contour[1] if (contour is not None and len(contour) >= 2) else None for contour in full_list]
+        return x_list, y_list
+
+    lumen_x, lumen_y = build_xy_lists(lumen_full_list)
+    eem_x, eem_y = build_xy_lists(eem_full_list)
+    calc_x, calc_y = build_xy_lists(calc_full_list)
+    branch_x, branch_y = build_xy_lists(branch_full_list)
+
+    # Ensure main_window.data has an 'eem_area' list to write into (defensive)
+    n_frames = main_window.metadata.get('num_frames', len(lumen_x) if lumen_x is not None else 0)
+    if 'eem_area' not in main_window.data or len(main_window.data['eem_area']) < n_frames:
+        main_window.data.setdefault('eem_area', [0] * n_frames)
 
     for frame in contoured_frames:
-        if lumen_area[frame] and elliptic_ratio[frame] != 0:  # values already computed for this frame -> skip
+        # skip frames already computed (defensive check)
+        if lumen_area[frame] and elliptic_ratio[frame] != 0:
+            # still compute EEM area if not present
+            if eem_x and eem_x[frame] is not None and (not main_window.data['eem_area'][frame]):
+                try:
+                    polygon_eem = Polygon([(x, y) for x, y in zip(eem_x[frame], eem_y[frame])])
+                    main_window.data['eem_area'][frame] = polygon_eem.area * main_window.metadata['resolution'] ** 2
+                except Exception:
+                    main_window.data['eem_area'][frame] = 0
+            continue
+
+        # defensive: make sure lumen contour exists for this frame
+        if lumen_x[frame] is None or lumen_y[frame] is None:
+            # nothing to compute for this frame
             continue
 
         polygon = Polygon([(x, y) for x, y in zip(lumen_x[frame], lumen_y[frame])])
@@ -143,30 +359,32 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         vector_length[frame], vector_angle[frame] = centroid_center_vector(
             main_window, centroid_x[frame], centroid_y[frame]
         )
+
+        # Compute EEM area for this frame if EEM contour exists
+        if eem_x and eem_x[frame] is not None:
+            try:
+                polygon_eem = Polygon([(x, y) for x, y in zip(eem_x[frame], eem_y[frame])])
+                main_window.data['eem_area'][frame] = polygon_eem.area * main_window.metadata['resolution'] ** 2
+            except Exception:
+                main_window.data['eem_area'][frame] = 0
+
         if not suppress_messages:
             progress.setValue(frame)
             if progress.wasCanceled():
                 return None
 
+    # Build report DataFrame (same as before) and append eem_area
     report_data = pd.DataFrame()
-    report_data['frame'] = [
-        frame + 1 for frame in contoured_frames
-    ]  # want 1-based indexing for direct comparison with GUI
-    # since frame_start is not at 0, we must shift position by pullback_start_frame
+    report_data['frame'] = [frame + 1 for frame in contoured_frames]
     report_data['position'] = 0
     n_frames = main_window.metadata.get('num_frames', len(contoured_frames))
     start_frame = main_window.metadata['pullback_start_frame']
     if start_frame <= 0.25 * n_frames:
-        # subtract the offset for frames before the true start
         offset = main_window.metadata['pullback_length'][start_frame - 1]
-        report_data['position'] = [
-            main_window.metadata['pullback_length'][frame] for frame in contoured_frames
-            ]
+        report_data['position'] = [main_window.metadata['pullback_length'][frame] for frame in contoured_frames]
         report_data['position'] = report_data['position'] - offset
     else:
-        report_data['position'] = [
-            main_window.metadata['pullback_length'][frame] for frame in contoured_frames
-            ]
+        report_data['position'] = [main_window.metadata['pullback_length'][frame] for frame in contoured_frames]
     report_data['position'] = report_data['position'].apply(lambda x: max(x, 0))
     report_data['phase'] = [main_window.data['phases'][frame] for frame in contoured_frames]
     report_data['lumen_area'] = [lumen_area[frame] for frame in contoured_frames]
@@ -178,16 +396,34 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
     report_data['vector_angle'] = [vector_angle[frame] for frame in contoured_frames]
     report_data['measurement_1'] = [main_window.data['measure_lengths'][frame][0] for frame in contoured_frames]
     report_data['measurement_2'] = [main_window.data['measure_lengths'][frame][1] for frame in contoured_frames]
+
+    # Add eem_area column (zero when no EEM for frame)
+    report_data['eem_area'] = [main_window.data.get('eem_area', [0] * n_frames)[frame] for frame in contoured_frames]
+
     main_window.data['elliptic_ratio'] = elliptic_ratio
     main_window.data['vector_length'] = vector_length
     main_window.data['vector_angle'] = vector_angle
 
-    if save_as_csv:  # write centered contours to .csv files
+    # Save CSVs for lumen (diastolic/systolic) and for other contours if present
+    if save_as_csv:
         save_csv_files(main_window, lumen_x, lumen_y, name='diastolic', frames=main_window.gated_frames_dia)
         save_csv_files(main_window, lumen_x, lumen_y, name='systolic', frames=main_window.gated_frames_sys)
+
+        # save EEM/Calcium/Branch CSVs if contours exist for any frame
+        if eem_x is not None and any(elem is not None for elem in eem_x):
+            save_csv_files(main_window, eem_x, eem_y, name='eem', frames=main_window.gated_frames_dia)
+            save_csv_files(main_window, eem_x, eem_y, name='eem_systolic', frames=main_window.gated_frames_sys)
+        if calc_x is not None and any(elem is not None for elem in calc_x):
+            save_csv_files(main_window, calc_x, calc_y, name='calcium', frames=main_window.gated_frames_dia)
+            save_csv_files(main_window, calc_x, calc_y, name='calcium_systolic', frames=main_window.gated_frames_sys)
+        if branch_x is not None and any(elem is not None for elem in branch_x):
+            save_csv_files(main_window, branch_x, branch_y, name='branch', frames=main_window.gated_frames_dia)
+            save_csv_files(main_window, branch_x, branch_y, name='branch_systolic', frames=main_window.gated_frames_sys)
+
     if not suppress_messages:
         progress.close()
 
+    # plotting block unchanged (keeps using lumen_x/lumen_y)
     if plot:
         index_1 = int(len(contoured_frames) * 0.2)
         index_2 = int(len(contoured_frames) * 0.4)
@@ -249,6 +485,7 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         fig.show()
 
     return report_data
+
 
 
 def compute_polygon_metrics(main_window, polygon, frame):

@@ -28,6 +28,7 @@ Documentation Structure
    contents/tutorial
    contents/api_references
    CONTRIBUTING.md
+   CHANGELOG.md
    contents/related_projects
    Github <https://github.com/AI-in-Cardiovascular-Medicine/AIVUS-CAA>
 

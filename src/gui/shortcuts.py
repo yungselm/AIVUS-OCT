@@ -71,6 +71,8 @@ def init_menu(main_window):
     manual_eem_contour.setShortcut('Q')
     manual_calc_contour = edit_menu.addAction('Manual Calcium Contour', partial(new_contour, main_window, ContourType.CALCIUM))
     manual_calc_contour.setShortcut('Y')
+    manual_branch_contour = edit_menu.addAction('Manual Branch Contour', partial(new_contour, main_window, ContourType.BRANCH))
+    manual_branch_contour.setShortcut('X')
     edit_menu.addAction('Remove Contours', partial(remove_contours, main_window))
     edit_menu.addSeparator()
     edit_menu.addAction('Reset Phases', partial(reset_phases, main_window))

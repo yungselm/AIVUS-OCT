@@ -90,7 +90,6 @@ def write_contours(main_window):
         ErrorMessage(main_window, "Cannot write contours before reading input file")
         return
 
-    # determine output basename/path
     try:
         base = os.path.splitext(main_window.file_name)[0]
     except Exception:
@@ -104,13 +103,12 @@ def write_contours(main_window):
     data = getattr(main_window, "data", {}) or {}
 
     if main_window.config.save.use_xml_files:
-        # --- Legacy XML export for lumen (keeps previous behaviour) ---
+        # Legacy XML export for lumen (keeps previous behaviour)
         # Build x,y lists frame-by-frame from lumen data (defensive)
         num_frames = main_window.metadata.get("num_frames", 0)
         x = []
         y = []
         lumen_data = data.get("lumen", [[], []])
-        # ensure lists with correct length
         lx = lumen_data[0] if len(lumen_data) > 0 else []
         ly = lumen_data[1] if len(lumen_data) > 1 else []
 
@@ -128,7 +126,6 @@ def write_contours(main_window):
             y.append(new_y_lumen)
 
         try:
-            # call existing write_xml (assumed imported earlier in the module)
             write_xml(
                 x,
                 y,
@@ -142,7 +139,6 @@ def write_contours(main_window):
         except Exception as e:
             logger.exception(f"Failed to write XML contours: {e}")
 
-        # Also write a JSON sidecar containing all contour layers and data to avoid data loss
         try:
             with open(json_out_path, "w") as out_file:
                 json.dump(data, out_file, default=_to_serializable, indent=2)
@@ -151,7 +147,7 @@ def write_contours(main_window):
             logger.exception(f"Failed to write contours JSON sidecar: {e}")
 
     else:
-        # Write the whole main_window.data to JSON (safe serialization)
+        # Write the whole main_window.data to JSON (better safe than sorry)
         try:
             with open(json_out_path, "w") as out_file:
                 json.dump(data, out_file, default=_to_serializable, indent=2)

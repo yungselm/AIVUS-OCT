@@ -292,7 +292,6 @@ def delete_contour(main_window):
         if not hasattr(main_window, 'tmp_contours'):
             main_window.tmp_contours = {}
 
-        # Get the current contour data - don't use 'or []' here
         frame = main_window.display.frame
         contour_data = main_window.data.get(key, [[], []])
         

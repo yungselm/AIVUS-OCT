@@ -94,9 +94,11 @@ class SmallDisplay(QMainWindow):
             contour_types = (Spline, Point, QGraphicsLineItem)  # types of items to remove from scene
             [self.scene.removeItem(item) for item in self.scene.items() if isinstance(item, contour_types)]
 
-            if self.main_window.data['lumen'][0][frame] and not self.main_window.hide_contours:
-                lumen_x = [point * self.scaling_factor for point in self.main_window.data['lumen'][0][frame]]
-                lumen_y = [point * self.scaling_factor for point in self.main_window.data['lumen'][1][frame]]
+            key = self.main_window.display.contour_key()
+            contour_data = self.main_window.data.get(key)
+            if contour_data and contour_data[0][frame] and not self.main_window.hide_contours:
+                lumen_x = [point * self.scaling_factor for point in contour_data[0][frame]]
+                lumen_y = [point * self.scaling_factor for point in contour_data[1][frame]]
                 current_contour = Spline([lumen_x, lumen_y], self.n_points_contour, self.contour_thickness, 'green')
 
                 if current_contour.full_contour[0] is not None:

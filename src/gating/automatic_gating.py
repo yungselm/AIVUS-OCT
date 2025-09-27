@@ -92,7 +92,7 @@ class AutomaticGating:
             # print(f"Image based indices: {image_indices}")
             # print(f"Contour based indices: {contour_indices}")
             # print(f"Combined indices: {final_indices}")
-            # write_csv_signals(image_based_signal, 
+            # _write_csv_signals(image_based_signal, 
             #                   contour_based_signal, 
             #                   image_indices, 
             #                   contour_indices, 
@@ -138,7 +138,7 @@ class AutomaticGating:
             for frame in self.main_window.gated_frames_sys:
                 self.main_window.data['phases'][frame] = 'S'
 
-def write_csv_signals(image_signal, contour_signal, image_indices, contour_indices, combined_indices):
+def _write_csv_signals(image_signal, contour_signal, image_indices, contour_indices, combined_indices):
     import pandas as pd
     df = pd.DataFrame({
         'frame': np.arange(len(image_signal)),

@@ -17,22 +17,28 @@ from gui.right_half.longitudinal_view import Marker
 from report.report import compute_polygon_metrics, farthest_points, closest_points
 from segmentation.segment import downsample
 
+
 class ContourType(Enum):
     LUMEN = "lumen"
     EEM = "eem"
     CALCIUM = "calcium"
     BRANCH = "branch"
 
+
 @dataclass
 class ContourConfig:
     """Configuration for a specific contour type"""
-    color: Union[str, Tuple[int, int, int], Any] # accept string names ('green'), hex ('#ff00ff'), or RGB tuples (255,0,0)
+
+    color: Union[
+        str, Tuple[int, int, int], Any
+    ]  # accept string names ('green'), hex ('#ff00ff'), or RGB tuples (255,0,0)
     thickness: int
     point_radius: int
     point_thickness: int
     alpha: float
     n_points_contour: int
     n_interactive_points: int
+
 
 class IVUSDisplay(QGraphicsView):
     """
@@ -117,7 +123,9 @@ class IVUSDisplay(QGraphicsView):
         """Set active contour type and refresh transient state for editing that contour."""
         if contour_type == self.active_contour_type:
             return
-        logger.info(f"[IVUSDisplay] set_active_contour_type: {contour_type.value} (was {self.active_contour_type.value})")
+        logger.info(
+            f"[IVUSDisplay] set_active_contour_type: {contour_type.value} (was {self.active_contour_type.value})"
+        )
         self.active_contour_type = contour_type
         # reset interactive state so we start fresh for the new contour type
         self.current_contour = None
@@ -315,7 +323,11 @@ class IVUSDisplay(QGraphicsView):
                 lumen_data = self.get_contour_data(ContourType.LUMEN)
                 if lumen_data and lumen_data[0][self.frame]:
                     # draw lumen and set as lumen_contour, but only set current_contour if lumen is active
-                    self.draw_contour(lumen_data, contour_type=ContourType.LUMEN, set_current=(self.active_contour_type == ContourType.LUMEN))
+                    self.draw_contour(
+                        lumen_data,
+                        contour_type=ContourType.LUMEN,
+                        set_current=(self.active_contour_type == ContourType.LUMEN),
+                    )
                 else:
                     # no lumen contour for this frame
                     self.lumen_contour = None
@@ -431,8 +443,13 @@ class IVUSDisplay(QGraphicsView):
         if spline.full_contour[0] is not None:
             # create knot/interactive points (but only attach them to UI if this is the editing target)
             knot_points = [
-                Point((spline.knot_points[0][i], spline.knot_points[1][i]),
-                    self.point_thickness, self.point_radius, color, alpha)
+                Point(
+                    (spline.knot_points[0][i], spline.knot_points[1][i]),
+                    self.point_thickness,
+                    self.point_radius,
+                    color,
+                    alpha,
+                )
                 for i in range(len(spline.knot_points[0]) - 1)
             ]
 
@@ -497,7 +514,9 @@ class IVUSDisplay(QGraphicsView):
                         )
 
                         key = self.contour_key()
-                        logger.info(f"[IVUSDisplay] add_contour -> saving closed spline to key='{key}', frame={self.frame}")
+                        logger.info(
+                            f"[IVUSDisplay] add_contour -> saving closed spline to key='{key}', frame={self.frame}"
+                        )
                         self._ensure_main_window_contour_structure(key)
 
                         self.main_window.data[key][0][self.frame] = [
@@ -653,7 +672,46 @@ class IVUSDisplay(QGraphicsView):
                 self.main_window.setCursor(Qt.ArrowCursor)
                 self.display_image(update_contours=True)
             else:
-                # identify which point has been clicked
+                # attempt to switch active contour based on nearest knotpoint across all contour types (new feature)
+                try:
+                    min_dist = float('inf')
+                    nearest_ct = None
+                    nearest_idx = None
+                    nearest_coord = None
+                    threshold_px = 20  # pixels; click must be within this to trigger switch
+
+                    for ct in ContourType:
+                        contour_data = self.get_contour_data(ct)
+                        if not contour_data:
+                            continue
+                        # defensive: ensure per-frame lists exist
+                        try:
+                            xs = contour_data[0][self.frame]
+                            ys = contour_data[1][self.frame]
+                        except Exception:
+                            continue
+                        if not xs:
+                            continue
+
+                        # compare scaled coordinates to click
+                        for idx, (x_orig, y_orig) in enumerate(zip(xs, ys)):
+                            x = x_orig * self.scaling_factor
+                            y = y_orig * self.scaling_factor
+                            dist = math.hypot(pos.x() - x, pos.y() - y)
+                            if dist < min_dist:
+                                min_dist = dist
+                                nearest_ct = ct
+                                nearest_idx = idx
+                                nearest_coord = (x, y)
+
+                    # If a close point was found and it's not the current active type, switch
+                    if nearest_ct is not None and min_dist < threshold_px and nearest_ct != self.active_contour_type:
+                        self.set_active_contour_type(nearest_ct)
+                        self.display_image(update_contours=True)
+                except Exception:
+                    logger.exception("Error while attempting to switch active contour on click")
+
+                # identify which point has been clicked (original logic unchanged)
                 items = self.items(event.pos())
                 point = [item for item in items if isinstance(item, Point)]
                 spline = [item for item in items if isinstance(item, Spline)]

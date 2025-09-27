@@ -123,9 +123,6 @@ class IVUSDisplay(QGraphicsView):
         """Set active contour type and refresh transient state for editing that contour."""
         if contour_type == self.active_contour_type:
             return
-        logger.info(
-            f"[IVUSDisplay] set_active_contour_type: {contour_type.value} (was {self.active_contour_type.value})"
-        )
         self.active_contour_type = contour_type
         # reset interactive state so we start fresh for the new contour type
         self.current_contour = None
@@ -174,7 +171,6 @@ class IVUSDisplay(QGraphicsView):
     def _ensure_main_window_contour_structure(self, key: str):
         """Create basic [ [x per frame], [y per frame] ] structure if missing."""
         if key not in self.main_window.data:
-            logger.info(f"[IVUSDisplay] Creating main_window.data bucket for '{key}'")
             if hasattr(self, 'images') and self.images is not None:
                 nframes = self.images.shape[0]
             else:
@@ -512,9 +508,6 @@ class IVUSDisplay(QGraphicsView):
                         )
 
                         key = self.contour_key()
-                        logger.info(
-                            f"[IVUSDisplay] add_contour -> saving closed spline to key='{key}', frame={self.frame}"
-                        )
                         self._ensure_main_window_contour_structure(key)
 
                         self.main_window.data[key][0][self.frame] = [
@@ -763,7 +756,6 @@ class IVUSDisplay(QGraphicsView):
                 item.reset_color()
 
                 key = self.contour_key()
-                logger.info(f"[IVUSDisplay] mouseReleaseEvent -> saving moved knots to key='{key}', frame={self.frame}")
                 self._ensure_main_window_contour_structure(key)
 
                 self.main_window.data[key][0][self.frame] = [

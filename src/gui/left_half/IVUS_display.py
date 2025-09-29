@@ -57,7 +57,7 @@ class IVUSDisplay(QGraphicsView):
         self.contour_thickness = config.display.contour_thickness
         self.point_thickness = config.display.point_thickness
         self.point_radius = config.display.point_radius
-        # use config values (fallback defaults provided)
+
         self.color_contour = getattr(config.display, "color_contour", (255, 255, 255))
         self.alpha_contour = getattr(config.display, "alpha_contour", 255)  # config uses 0..255
 
@@ -97,7 +97,6 @@ class IVUSDisplay(QGraphicsView):
         self.reference_mode = False
         self.active_contour_type: ContourType = ContourType.LUMEN
 
-        # Store initial window level and window width (full width, middle level)
         self.initial_window_level = 128  # window level is the center which determines the brightness of the image
         self.initial_window_width = 256  # window width is the range of pixel values that are displayed
         self.window_level = self.initial_window_level
@@ -124,12 +123,12 @@ class IVUSDisplay(QGraphicsView):
         if contour_type == self.active_contour_type:
             return
         self.active_contour_type = contour_type
-        # reset interactive state so we start fresh for the new contour type
+
         self.current_contour = None
         self.contour_points = []
         self.active_point = None
         self.active_point_index = None
-        # redraw contours for the newly active type
+
         self.display_image(update_contours=True, update_image=False, update_phase=False)
 
     def get_full_contour_list(self, contour_type: ContourType = None):
@@ -158,7 +157,6 @@ class IVUSDisplay(QGraphicsView):
             contour_list = self.full_contours.get(key)
             if contour_list is None:
                 return None
-            # guard bounds
             if 0 <= frame < len(contour_list):
                 return contour_list[frame]
             return None
@@ -191,7 +189,6 @@ class IVUSDisplay(QGraphicsView):
         self.image_width = images.shape[1]
         self.scaling_factor = self.image_size / images.shape[1]
 
-        # ensure main_window.data exists
         if not hasattr(self.main_window, "data") or self.main_window.data is None:
             self.main_window.data = {}
 
@@ -209,7 +206,6 @@ class IVUSDisplay(QGraphicsView):
             else:
                 # make sure existing entries have per-frame lists of correct length (defensive)
                 try:
-                    # if it's already in the expected form but lengths differ, resize
                     if len(self.main_window.data[key][0]) < num_frames:
                         missing = num_frames - len(self.main_window.data[key][0])
                         self.main_window.data[key][0].extend([[] for _ in range(missing)])

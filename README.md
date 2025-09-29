@@ -1,5 +1,6 @@
 
 # AIVUS-CAA (Automated IntraVascular UltraSound Image Processing and Quantification of Coronary Artery Anomalis) <!-- omit in toc -->
+[![version](https://img.shields.io/badge/version-v1.1.0-yellow)](https://github.com/yungselm/AAOCASeg/releases/tag/v1.0.0)
 [![Docs](https://img.shields.io/readthedocs/aivus-caa)](https://aivus-caa.readthedocs.io)
 [![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.cmpb.2025.109065-blue)](https://doi.org/10.1016/j.cmpb.2025.109065)
 
@@ -87,7 +88,7 @@ This will open a graphical user interface (GUI) in which you have access to the 
 
 For ease-of-use, this application contains several keyboard shortcuts.\
 In the current state, these cannot be changed by the user (at least not without changing the source code).
-
+### v1.0.0 (Base module and state of publication)
 - Press <kbd>Ctrl</kbd> + <kbd>O</kbd> to open a DICOM/NIfTi file
 - Use the <kbd>A</kbd> and <kbd>D</kbd> keys to move through the IVUS images frame-by-frame
 - If gated (diastolic/systolic) frames are available, you can move through those using <kbd>S</kbd> and <kbd>W</kbd>\
@@ -107,7 +108,12 @@ In the current state, these cannot be changed by the user (at least not without 
 - Press <kbd>Alt</kbd> + <kbd>Delete</kbd> to define a range of frames to remove gating
 - Press <kbd>Alt</kbd> + <kbd>S</kbd> to define a range of frames to switch systole and diastole in gated frames
 
-## Tutorial
+### v1.1.0 and higher
+- Press <kbd>Q</kbd> to manually draw an external elastic membrane (EEM) contour
+- Press <kbd>Y</kbd> to manually draw a calcification contour
+- Press <kbd>X</kbd> to manually draw a side branch contour
+
+## Tutorial (v1.0.0 - Base module)
 An example case is provided under "/test_cases/patient_example", allowing to follow along.
 
 ### Window manipulation:
@@ -134,6 +140,14 @@ Movement patterns may vary between datasets; consequently, the final frame selec
 - Compare Frames: Click "Compare Frames" to open the nearest proximal frame for the selected phase (systole or diastole).
 
 ![Demo](media/explanation_software_part3.gif)
+
+## Tutorial (v1.1.x - Full segmentation)
+Version 1.1.0 and higher offer the additional possibility to segment the EEM, calcification and side branches. This works in the same style as for the base contours. Clicking on any contour in the image automatically sets it as the active contour.
+
+> [!NOTE]
+> The segmentation models are currently only trained for lumen contours. In the future, we will implement additional models for EEM segmentation and calcium segmentation.
+
+![Demo](media/v1.1.0update.gif)
 
 ## Acknowledgements
 

@@ -26,6 +26,17 @@ Segmentation
    :align: center
    :width: 800px
 
+.. note::
+   Since version 1.1.0, additional contours can be drawn:
+   - :kbd:`Q` to draw an external elastic membrane (EEM) contour
+   - :kbd:`Y` to draw a calcification contour
+   - :kbd: `X` to draw a side branch contour
+
+.. image:: ../../media/v1.1.0update.gif
+   :alt: Example figure
+   :align: center
+   :width: 800px
+
 Gating
 ------
 Gating can only be performed as soon as a lumen contour is available for each frame.

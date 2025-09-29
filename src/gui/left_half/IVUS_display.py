@@ -353,6 +353,7 @@ class IVUSDisplay(QGraphicsView):
                     shortest_distance, closest_point_x, closest_point_y = closest_points(
                         self.main_window, polygon, self.frame
                     )
+                    eem_area, percent_text = self.compute_eem_and_percent_stenosis(self.frame, lumen_area)
 
                     if not self.main_window.hide_special_points:
                         self.graphics_scene.addLine(
@@ -375,17 +376,7 @@ class IVUSDisplay(QGraphicsView):
                         )
 
                     elliptic_ratio = (longest_distance / shortest_distance) if shortest_distance != 0 else 0
-                    frame_metrics_text = QGraphicsTextItem(
-                        f'Lumen area:\t\t{round(lumen_area, 2)} (mm\N{SUPERSCRIPT TWO})\n'
-                        f'Lumen circ:\t\t{round(lumen_circumf, 2)} (mm)\n'
-                        f'Elliptic ratio:\t\t{round(elliptic_ratio, 2)}\n'
-                        f'Longest distance:\t{round(longest_distance, 2)} (mm)\n'
-                        f'Shortest distance:\t{round(shortest_distance, 2)} (mm)'
-                    )
-                    frame_metrics_text.setFont(QFont('Helvetica', int(self.image_size / 50)))
-                    self.graphics_scene.addItem(frame_metrics_text)
-                    if not update_phase:
-                        self.graphics_scene.addItem(self.phase_text)
+                    self.build_frame_metrics_text(lumen_area, lumen_circumf, elliptic_ratio, longest_distance, shortest_distance, eem_area, percent_text, update_phase)
 
             else:  # re-draw old elements to put them in foreground
                 [self.graphics_scene.addItem(item) for item in old_contours]
@@ -413,6 +404,118 @@ class IVUSDisplay(QGraphicsView):
             self.phase_text.setX(self.image_size - self.image_size / 3.75)
             self.phase_text.setFont(QFont('Helvetica', int(self.image_size / 50), QFont.Bold))
             self.graphics_scene.addItem(self.phase_text)
+
+    def compute_eem_and_percent_stenosis(self, frame: int, lumen_area: float):
+        """
+        Return (eem_area, percent_stenosis_text).
+        Robust to numpy arrays and malformed data structures.
+        """
+        eem_area = None
+        percent_text = "n/a"
+        try:
+            # Preferred: use prepared full_contours for EEM (display coords)
+            eem_full = self.get_full_contour_for_frame(ContourType.EEM, frame)
+            if eem_full is not None:
+                try:
+                    eem_x, eem_y = eem_full
+                except Exception:
+                    eem_x = eem_y = None
+
+                try:
+                    has_eem_coords = (eem_x is not None and len(eem_x) > 0) and (eem_y is not None and len(eem_y) > 0)
+                except Exception:
+                    has_eem_coords = False
+
+                if has_eem_coords:
+                    polygon_eem = Polygon([(float(x), float(y)) for x, y in zip(eem_x, eem_y)])
+                    eem_area, _, _, _ = compute_polygon_metrics(self.main_window, polygon_eem, frame)
+
+            # Fallback: use main_window.data (original image coords) and scale to display coords
+            if eem_area is None:
+                eem_data = self.get_contour_data(ContourType.EEM)
+                if eem_data and isinstance(eem_data, (list, tuple)) and len(eem_data) >= 2:
+                    xs_orig = ys_orig = None
+                    try:
+                        # defensive: ensure per-frame lists exist and frame index valid
+                        if len(eem_data[0]) > frame:
+                            xs_orig = eem_data[0][frame]
+                        if len(eem_data[1]) > frame:
+                            ys_orig = eem_data[1][frame]
+                    except Exception:
+                        xs_orig = ys_orig = None
+
+                    try:
+                        has_orig = (xs_orig is not None and len(xs_orig) > 0) and (ys_orig is not None and len(ys_orig) > 0)
+                    except Exception:
+                        has_orig = False
+
+                    if has_orig:
+                        xs_scaled = [float(x) * self.scaling_factor for x in xs_orig]
+                        ys_scaled = [float(y) * self.scaling_factor for y in ys_orig]
+                        polygon_eem = Polygon([(x, y) for x, y in zip(xs_scaled, ys_scaled)])
+                        eem_area, _, _, _ = compute_polygon_metrics(self.main_window, polygon_eem, frame)
+        except Exception:
+            logger.exception("Failed while computing EEM area")
+
+        try:
+            if lumen_area is not None and eem_area not in (None, 0):
+                percent = (1.0 - (lumen_area / eem_area)) * 100.0
+                percent = max(0.0, min(100.0, percent))  # clamp 0..100
+                percent_text = f"{round(percent, 2)} %"
+        except Exception:
+            logger.exception("Failed to compute percent stenosis")
+
+        return eem_area, percent_text
+            
+    def build_frame_metrics_text(
+        self,
+        lumen_area,
+        lumen_circumf,
+        elliptic_ratio,
+        longest_distance,
+        shortest_distance,
+        eem_area,
+        percent_stenosis_text,
+        update_phase,
+    ):
+        """
+        Build/add a single QGraphicsTextItem with lumen + EEM + percent-stenosis metrics.
+        Safely removes any previous metrics item only if it belongs to this scene.
+        """
+        # remove previous metrics text if present and belongs to our scene (prevents removeItem scene mismatch)
+        try:
+            prev = getattr(self, "frame_metrics_text", None)
+            if prev is not None:
+                try:
+                    if hasattr(prev, "scene") and prev.scene() is self.graphics_scene:
+                        self.graphics_scene.removeItem(prev)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        lines = [
+            f"Lumen area:\t\t{round(lumen_area, 2)} (mm\N{SUPERSCRIPT TWO})" if lumen_area is not None else "Lumen area:\t\tn/a",
+            f"Lumen circ:\t\t{round(lumen_circumf, 2)} (mm)" if lumen_circumf is not None else "Lumen circ:\t\tn/a",
+            f"Elliptic ratio:\t\t{round(elliptic_ratio, 2)}" if elliptic_ratio is not None else "Elliptic ratio:\t\tn/a",
+            f"Longest distance:\t{round(longest_distance, 2)} (mm)" if longest_distance is not None else "Longest distance:\t\tn/a",
+            f"Shortest distance:\t{round(shortest_distance, 2)} (mm)" if shortest_distance is not None else "Shortest distance:\t\tn/a",
+            f"EEM area:\t\t{round(eem_area, 2)} (mm\N{SUPERSCRIPT TWO})" if eem_area is not None else "EEM area:\t\tn/a",
+            f"Percent stenosis:\t{percent_stenosis_text}",
+        ]
+
+        self.frame_metrics_text = QGraphicsTextItem("\n".join(lines))
+        self.frame_metrics_text.setFont(QFont("Helvetica", int(self.image_size / 50)))
+
+        self.frame_metrics_text.setPos(5, 5)
+        self.graphics_scene.addItem(self.frame_metrics_text)
+
+        if not update_phase:
+            try:
+                if hasattr(self, "phase_text") and (self.phase_text is not None):
+                    self.graphics_scene.addItem(self.phase_text)
+            except Exception:
+                pass
 
     def draw_contour(self, contour_data, contour_type: ContourType = None, set_current: bool = False):
         """

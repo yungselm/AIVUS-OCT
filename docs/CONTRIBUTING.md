@@ -23,7 +23,7 @@ By participating, you agree to respect everyone in this community.
 1. Fork the repo and clone your fork
 ```bash
 git clone https://github.com/AI-in-Cardiovascular-Medicine/AIVUS-CAA.git
-cd multimoda-rs
+cd aivus-caa
 ```
 2. Create a new branch
 ```bash

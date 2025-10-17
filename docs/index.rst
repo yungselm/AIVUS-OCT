@@ -40,8 +40,8 @@ This package is covered by the open source `MIT License <https://github.com/AI-i
 Developers
 ----------
 
- - `Sebastian Balzer <https://github.com/sebal>`_:sup:`1,2`
- - `Anselm Stark <https://github.com/yugnselm>`_:sup:`1,2`
+ - `Sebastian Balzer <https://github.com/cardionaut>`_:sup:`1,2`
+ - `Anselm Stark <https://github.com/yungselm>`_:sup:`1,2`
  - `Pooya Mohammadi Kazaj <https://github.com/pooya-mohammadi>`_:sup:`1,2`
  - `Isaac Shiri <https://github.com/Isaacshiri>`_:sup:`1`
 

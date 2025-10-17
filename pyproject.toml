@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "AIVUS-CAA"
-version = "0.1.1"
+version = "1.1.0"
 description = ""
 authors = ["yungselm", "cardionaut", "Pooya Mohammadi Kazaj"]
 # package-mode = false

@@ -160,11 +160,6 @@ Version 1.1.0 and higher offer the additional possibility to segment the EEM, ca
 
 ![Demo](media/v1.1.0update.gif)
 
-## Acknowledgements
-
-The starting point of this project was the [DeepIVUS](https://github.com/dmolony3/DeepIVUS) public repository by [David](https://github.com/dmolony3) (cloned on May 22, 2023).
-
-
 # Citation
 Please kindly cite the following paper if you use this repository.
 

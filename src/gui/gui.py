@@ -22,7 +22,7 @@ class Master(QMainWindow):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.file_name = None  # Ensure file_name is initialized
+        self.file_name = None
         self.autosave_interval = config.save.autosave_interval
         self.contour_based_gating = ContourBasedGating(self)
         self.predictor = Predict(self)

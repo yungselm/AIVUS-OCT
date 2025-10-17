@@ -14,6 +14,22 @@ To set up AIVUS-CAA on your system:
     pip install poetry
     poetry install
 
+Sometimes the nnUZoo can be problematic to install over github, so as a default it is commented out 
+in pyproject.toml. In this case the installation should be performed like this:
+
+.. code-block:: bash
+
+    python3 -m venv env
+    source env/bin/activate
+    pip install poetry
+    poetry install
+    poetry run pip install git+https://github.com/AI-in-Cardiovascular-Medicine/nnUZoo@main
+
+For developers download additionally the dev dependencies:
+
+.. code-block:: bash
+
+    poetry install --with dev
 
 2. **Optional GPU setup (if using acceleration).** 
 Install NVIDIA CUDA toolkit and drivers matching your TensorFlow version. For Ubuntu:
@@ -40,3 +56,7 @@ Run the main program:
     python3 src/main.py
 
 The graphical user interface (GUI) should appear. If you encounter issues, review the README or submit an issue on GitHub.
+
+4. **Outlook.**
+We are currently working on packaging AIVUS-CAA for easier installation and distribution. 
+Additionally, we plan to provide Docker images for streamlined deployment across various systems. Stay tuned for updates!

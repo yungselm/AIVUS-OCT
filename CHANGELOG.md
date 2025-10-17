@@ -7,9 +7,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - Support for segmenting external elastic membrane (EEM), calcium, and branches.
 - Refactored contour handling into an `Enum`, ensuring scalability for additional contours.
+- Add first structure for future test suite.
 
 ### Changed
 - Adjusted all outputs to align with new contours.
+- Easier installation instructions by installing nnUZoo independent of poetry.
+- Adjusted README and documentation
 
 ## [1.0.0] - 2025-09-18
 ### Added

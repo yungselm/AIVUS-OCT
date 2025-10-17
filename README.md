@@ -35,6 +35,18 @@
     pip install poetry
     poetry install
 ```
+Sometimes the nnUZoo can be problematic to install over github, so as a default it is commented out in pyproject.toml. In this case the installation should be performed like this:
+```bash
+    python3 -m venv env
+    source env/bin/activate
+    pip install poetry
+    poetry install
+    poetry run pip install git+https://github.com/AI-in-Cardiovascular-Medicine/nnUZoo@main
+```
+For developers download additionally the dev dependencies:
+```bash
+    poetry install --with dev
+```
 
 If you plan on using GPU acceleration for model training and inference, make sure to install the required tools (NVIDIA toolkit, etc.) and the corresponding version of Tensorflow.
 

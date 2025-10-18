@@ -22,15 +22,14 @@ def test_main_initializes_master(monkeypatch, simple_config):
     monkeypatch.setattr(mod, "Master", fake_master)
     monkeypatch.setattr(mod, "QApplication", DummyApp)
 
-    # Stub qdarktheme functions used in main() so they don't require a real QApplication
-    # mod.qdarktheme is the module object imported in src/main.py, so patch its members
+    calls = []
+
     if hasattr(mod, "qdarktheme"):
-        monkeypatch.setattr(mod.qdarktheme, "enable_hi_dpi", lambda *a, **k: None)
-        monkeypatch.setattr(mod.qdarktheme, "setup_theme", lambda *a, **k: None)
+        monkeypatch.setattr(mod.qdarktheme, "enable_hi_dpi", lambda *a, **k: calls.append("hi_dpi"))
+        monkeypatch.setattr(mod.qdarktheme, "setup_theme", lambda *a, **k: calls.append("setup_theme"))
     else:
-        # fallback: replace with a dummy namespace (rare)
-        monkeypatch.setattr(mod, "qdarktheme", SimpleNamespace(enable_hi_dpi=lambda *a, **k: None,
-                                                              setup_theme=lambda *a, **k: None))
+        monkeypatch.setattr(mod, "qdarktheme", SimpleNamespace(enable_hi_dpi=lambda *a, **k: calls.append("hi_dpi"),
+                                                              setup_theme=lambda *a, **k: calls.append("setup_theme")))
 
     # Prevent real sys.exit from killing pytest: make it raise SystemExit so we can assert it.
     monkeypatch.setattr(sys, "exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
@@ -40,3 +39,6 @@ def test_main_initializes_master(monkeypatch, simple_config):
 
     assert exc.value.code == 0
     assert "cfg" in constructed
+    assert constructed["cfg"] is simple_config
+    assert "hi_dpi" in calls
+    assert "setup_theme" in calls

@@ -48,9 +48,9 @@ For developers download additionally the dev dependencies:
     poetry install --with dev
 ```
 
-If you plan on using GPU acceleration for model training and inference, make sure to install the required tools (NVIDIA toolkit, etc.) and the corresponding version of Tensorflow.
+If you plan on using GPU acceleration for model training and inference, make sure to install the required tools (NVIDIA toolkit, etc.) and the corresponding version of Pytorch/Tensorflow.
 
-The program was tested on Ubuntu 22.04.5 with python 3.10.12. We tested it on differnt hardware, NVIDIA drivers and CUDA tended to cause problems cross-platforms. Make sure to download the corresponding drivers and CUDA toolkit, e.g.:
+The program was tested on Ubuntu 22.04.5 with python 3.10.12. We tested it on different hardware, NVIDIA drivers and CUDA tended to cause problems cross-platforms. Make sure to download the corresponding drivers and CUDA toolkit, e.g.:
 ```bash
 sudo apt update
 sudo apt upgrade

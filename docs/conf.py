@@ -3,13 +3,17 @@
 # -- Path setup --------------------------------------------------------------
 import os
 import sys
+from pathlib import Path
+
 sys.path.insert(0, os.path.abspath('../src'))
 
 # -- Project information -----------------------------------------------------
-project = 'AIVUS-CAA'
+project = 'aivus-caa'
 author = 'AI-in-Cardiovascular-Medicine'
 copyright = '2025, AI-in-Cardiovascular-Medicine'
-release = '0.1'
+ns = {}
+exec(Path("../src/version.py").read_text(), ns)
+release = ns.get('__version__', '0.0.0')
 
 # -- General configuration ---------------------------------------------------
 extensions = [

@@ -9,6 +9,7 @@ from loguru import logger
 from PyQt5.QtWidgets import QProgressDialog
 from PyQt5.QtCore import Qt
 from shapely.geometry import Polygon
+from shapely.errors import TopologicalError
 from itertools import combinations
 
 from gui.popup_windows.message_boxes import ErrorMessage, SuccessMessage
@@ -57,6 +58,28 @@ def report(main_window, lower_limit=None, upper_limit=None, suppress_messages=Fa
             SuccessMessage(main_window, 'Write report')
 
     return report_data
+
+
+def _safe_polygon_area(x_coords, y_coords, frame, contour_name, main_window):
+    """Build polygon from coordinate lists and return area in mm². 
+    On revocerable errors return 0 and log full exception + context."""
+    if not x_coords or not y_coords:
+        logger.warning(f'Empty coordinates for {contour_name} contour at frame {frame}, returning area 0.')
+        return 0
+    
+    try:
+        poly = Polygon([(x, y) for x, y in zip(x_coords, y_coords)])
+        return poly.area * main_window.metadata['resolution'] ** 2
+    except (ValueError, TypeError, TopologicalError) as e:
+        logger.bind(frame=frame, contour=contour_name, file=main_window.file_name).exception(
+            f'Error computing area for {contour_name} contour at frame {frame}: {e}'
+        )
+        return 0
+    except Exception:
+        logger.bind(frame=frame, contour=contour_name, file=main_window.file_name).exception(
+            f'Unexpected error computing area for {contour_name} contour at frame {frame}'
+        )
+        raise
 
 
 def compute_all(main_window, contoured_frames, suppress_messages, plot=True, save_as_csv=True):
@@ -109,7 +132,10 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         try:
             from gui.left_half.IVUS_display import ContourType
             lumen_full_list = main_window.display.get_full_contour_list(ContourType.LUMEN)
-        except Exception:
+        except (ImportError, AttributeError) as e:
+            logger.bind(file=main_window.file_name).warning(
+                f'Could not import ContourType/get_full_contour_list; using display.full_contours fallback. Reason: {e}'
+            )
             lumen_full_list = getattr(main_window.display, "full_contours", None)
 
     # !! Build other contour full lists (eem, calcium, branch) for CSV saving / optional metrics, careful if new added !!
@@ -140,11 +166,8 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         if lumen_area[frame] and elliptic_ratio[frame] != 0:
             # compute EEM area if not present
             if eem_x and eem_x[frame] is not None and (not main_window.data['eem_area'][frame]):
-                try:
-                    polygon_eem = Polygon([(x, y) for x, y in zip(eem_x[frame], eem_y[frame])])
-                    main_window.data['eem_area'][frame] = polygon_eem.area * main_window.metadata['resolution'] ** 2
-                except Exception:
-                    main_window.data['eem_area'][frame] = 0
+                area = _safe_polygon_area(eem_x[frame], eem_y[frame], frame=frame, contour_name="eem", main_window=main_window)
+                main_window.data['eem_area'][frame] = area
             continue
 
         # dmake sure lumen contour exists
@@ -169,11 +192,8 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
 
         # Compute EEM area for this frame if EEM contour exists
         if eem_x and eem_x[frame] is not None:
-            try:
-                polygon_eem = Polygon([(x, y) for x, y in zip(eem_x[frame], eem_y[frame])])
-                main_window.data['eem_area'][frame] = polygon_eem.area * main_window.metadata['resolution'] ** 2
-            except Exception:
-                main_window.data['eem_area'][frame] = 0
+            area = _safe_polygon_area(eem_x[frame], eem_y[frame], frame=frame, contour_name="eem", main_window=main_window)
+            main_window.data['eem_area'][frame] = area
 
         if not suppress_messages:
             progress.setValue(frame)
@@ -291,7 +311,6 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
     return report_data
 
 
-
 def compute_polygon_metrics(main_window, polygon, frame):
     """Computes lumen area and centroid from contour"""
     lumen_area = polygon.area * main_window.metadata['resolution'] ** 2
@@ -339,11 +358,16 @@ def farthest_points(main_window, exterior_coords, frame):
 
     longest_distance = max_distance * main_window.metadata['resolution']
 
-    # Separate x and y coordinates and append to the respective lists
-    x1, y1 = farthest_points[0]
-    x2, y2 = farthest_points[1]
-    farthest_point_x = [x1, x2]
-    farthest_point_y = [y1, y2]
+    try:
+        x1, y1 = farthest_points[0]
+        x2, y2 = farthest_points[1]
+        farthest_point_x = [x1, x2]
+        farthest_point_y = [y1, y2]
+    except TypeError:
+        logger.warning('No farthest points found, probably due to polygon shape')
+        farthest_point_x = [0, 0]
+        farthest_point_y = [0, 0]
+        longest_distance = 0
 
     main_window.data['longest_distance'][frame] = longest_distance
     main_window.data['farthest_point'][0][frame] = farthest_point_x
@@ -375,13 +399,12 @@ def closest_points(main_window, polygon, frame):
 
     shortest_distance = min_distance * main_window.metadata['resolution']
 
-    # Separate x and y coordinates and append to the respective lists
     try:
         x1, y1 = closest_points[0]
         x2, y2 = closest_points[1]
         closest_point_x = [x1, x2]
         closest_point_y = [y1, y2]
-    except TypeError:  # closest_points might be None for some very weird shapes
+    except TypeError:
         logger.warning('No closest points found, probably due to polygon shape')
         closest_point_x = [0, 0]
         closest_point_y = [0, 0]

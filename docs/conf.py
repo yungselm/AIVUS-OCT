@@ -9,10 +9,10 @@ sys.path.insert(0, os.path.abspath('../src'))
 
 # -- Project information -----------------------------------------------------
 project = 'aivus-caa'
-author = 'AI-in-Cardiovascular-Medicine'
+author = 'yungselm'
 copyright = '2025, AI-in-Cardiovascular-Medicine'
 ns = {}
-exec(Path("src/version.py").read_text(), ns)
+exec(Path("../src/version.py").read_text(), ns)
 release = ns.get('__version__', '0.0.0')
 
 # -- General configuration ---------------------------------------------------

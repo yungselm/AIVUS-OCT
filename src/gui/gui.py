@@ -22,7 +22,7 @@ class Master(QMainWindow):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.file_name = None  # Ensure file_name is initialized
+        self.file_name = None
         self.autosave_interval = config.save.autosave_interval
         self.contour_based_gating = ContourBasedGating(self)
         self.predictor = Predict(self)
@@ -32,8 +32,7 @@ class Master(QMainWindow):
         self.hide_special_points = False
         self.colormap_enabled = False
         self.filter = None
-        self.tmp_lumen_x = []  # for Ctrl+Z
-        self.tmp_lumen_y = []
+        self.tmp_contours = {} # per-contour-type undo storage, e.g. {'lumen': (xlist, ylist)}
         self.gated_frames = []
         self.gated_frames_dia = []
         self.gated_frames_sys = []
@@ -65,7 +64,7 @@ class Master(QMainWindow):
         main_window_splitter.addWidget(LeftHalf(self)())
         main_window_splitter.addWidget(RightHalf(self)())
 
-        self.setWindowTitle('AAOCA Segmentation Tool')
+        self.setWindowTitle('AIVUS-CAA Software')
         self.setCentralWidget(main_window_splitter)
         self.showMaximized()
 

@@ -22,7 +22,7 @@ from report.report import report
 
 
 from gui.popup_windows.results_plot import ResultsPlot
-
+from gui.left_half.IVUS_display import ContourType
 
 def init_shortcuts(main_window):
     # General
@@ -65,8 +65,14 @@ def init_menu(main_window):
     exit_action.setShortcut('Ctrl+Q')
 
     edit_menu = main_window.menu_bar.addMenu('Edit')
-    manual_contour = edit_menu.addAction('Manual Contour', partial(new_contour, main_window))
-    manual_contour.setShortcut('E')
+    manual_lumen_contour = edit_menu.addAction('Manual Lumen Contour', partial(new_contour, main_window, ContourType.LUMEN))
+    manual_lumen_contour.setShortcut('E')
+    manual_eem_contour = edit_menu.addAction('Manual EEM Contour', partial(new_contour, main_window, ContourType.EEM))
+    manual_eem_contour.setShortcut('Q')
+    manual_calc_contour = edit_menu.addAction('Manual Calcium Contour', partial(new_contour, main_window, ContourType.CALCIUM))
+    manual_calc_contour.setShortcut('Y')
+    manual_branch_contour = edit_menu.addAction('Manual Branch Contour', partial(new_contour, main_window, ContourType.BRANCH))
+    manual_branch_contour.setShortcut('X')
     edit_menu.addAction('Remove Contours', partial(remove_contours, main_window))
     edit_menu.addSeparator()
     edit_menu.addAction('Reset Phases', partial(reset_phases, main_window))
@@ -131,12 +137,15 @@ def remove_contours(main_window):
         if dialog.exec_():
             main_window.status_bar.showMessage('Removing contours...')
             lower_limit, upper_limit = dialog.getInputs()
+            key = main_window.display.contour_key()
+            main_window.display._ensure_main_window_contour_structure(key)
             for frame in range(lower_limit, upper_limit):
-                main_window.data['lumen'][0][frame] = []
-                main_window.data['lumen'][1][frame] = []
+                main_window.data[key][0][frame] = []
+                main_window.data[key][1][frame] = []
             main_window.longitudinal_view.remove_contours(lower_limit, upper_limit)
             main_window.display.update_display()
             main_window.status_bar.showMessage(main_window.waiting_status)
+
 
 
 def reset_phases(main_window):
@@ -277,20 +286,54 @@ def stop_all(main_window):
 
 def delete_contour(main_window):
     if main_window.image_displayed:
-        main_window.tmp_lumen_x = main_window.data['lumen'][0][main_window.display.frame]  # for Ctrl+Z
-        main_window.tmp_lumen_y = main_window.data['lumen'][1][main_window.display.frame]
-        main_window.data['lumen'][0][main_window.display.frame] = []
-        main_window.data['lumen'][1][main_window.display.frame] = []
+        key = main_window.display.contour_key()
+        main_window.display._ensure_main_window_contour_structure(key)
+
+        if not hasattr(main_window, 'tmp_contours'):
+            main_window.tmp_contours = {}
+
+        frame = main_window.display.frame
+        contour_data = main_window.data.get(key, [[], []])
+        
+        # Ensure the frame data exists
+        if len(contour_data[0]) <= frame:
+            # Extend the lists if needed
+            contour_data[0].extend([[]] * (frame - len(contour_data[0]) + 1))
+            contour_data[1].extend([[]] * (frame - len(contour_data[1]) + 1))
+        
+        xlist = contour_data[0][frame] if frame < len(contour_data[0]) else []
+        ylist = contour_data[1][frame] if frame < len(contour_data[1]) else []
+        
+        main_window.tmp_contours[key] = (xlist.copy(), ylist.copy())
+
+        # Clear the contour for this frame
+        if frame < len(contour_data[0]):
+            contour_data[0][frame] = []
+        if frame < len(contour_data[1]):
+            contour_data[1][frame] = []
+            
         main_window.display.display_image(update_contours=True)
 
 
 def undo_delete(main_window):
-    if main_window.image_displayed and main_window.tmp_lumen_x:
-        main_window.data['lumen'][0][main_window.display.frame] = main_window.tmp_lumen_x
-        main_window.data['lumen'][1][main_window.display.frame] = main_window.tmp_lumen_y
-        main_window.tmp_lumen_x = []
-        main_window.tmp_lumen_y = []
-    main_window.display.stop_contour()
+    if main_window.image_displayed:
+        key = main_window.display.contour_key()
+        if hasattr(main_window, 'tmp_contours') and key in main_window.tmp_contours:
+            xlist, ylist = main_window.tmp_contours.pop(key)
+            main_window.display._ensure_main_window_contour_structure(key)
+            
+            frame = main_window.display.frame
+            contour_data = main_window.data[key]
+            
+            # Ensure the frame data exists
+            if len(contour_data[0]) <= frame:
+                contour_data[0].extend([[]] * (frame - len(contour_data[0]) + 1))
+                contour_data[1].extend([[]] * (frame - len(contour_data[1]) + 1))
+            
+            contour_data[0][frame] = xlist
+            contour_data[1][frame] = ylist
+            
+            main_window.display.display_image(update_contours=True)
 
 
 def reset_windowing(main_window):

@@ -18,14 +18,17 @@ display:
   contour_thickness: 3
   point_thickness: 1
   point_radius: 10
-  color_contour: 'green' # 20 predefined colors in PyQt5 (https://doc.qt.io/qt-6/qcolor.html)
+  color_contour: 'green'
+  color_eem: 'red'
+  color_calcium: 'white'
+  color_branch: 'green' # 20 predefined colors in PyQt5 (https://doc.qt.io/qt-6/qcolor.html)
   alpha_contour: 128 # 0-255
 
 gating:
   normalize_step: 100
   # butterworth filter for gating
-  lowcut: 1.33  # lowcut frequency for Butterworth filter
-  highcut: 6.0  # highcut frequency for Butterworth filter
+  lowcut: 1.33  # lowcut frequency for Butterworth filter [Hz]
+  highcut: 6.0  # highcut frequency for Butterworth filter [Hz]
   order: 6  # order of Butterworth filter
   # identify extrema
   extrema_y_lim: 50  # percentile of how much higher next peak has to be (y-component)

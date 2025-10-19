@@ -1,5 +1,17 @@
+<p align="center">
+  <a href="https://github.com/AI-in-Cardiovascular-Medicine/AIVUS-CAA.jpg">
+    <img
+      src="https://raw.githubusercontent.com/AI-in-Cardiovascular-Medicine/AIVUS-CAA/main/media/logo.png"
+      alt="aivus-caa logo"
+    >
+  </a>
+</p>
 
-# AIVUS-CAA (Automated IntraVascular UltraSound Image Processing and Quantification of Coronary Artery Anomalis) <!-- omit in toc -->
+
+
+# AIVUS-CAA (Automated IntraVascular UltraSound Image Processing and Quantification of Coronary Artery Anomalies) <!-- omit in toc -->
+[![version](https://img.shields.io/badge/version-v1.1.0-yellow)](https://github.com/yungselm/AAOCASeg/releases/tag/v1.0.0)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Docs](https://img.shields.io/readthedocs/aivus-caa)](https://aivus-caa.readthedocs.io)
 [![DOI](https://img.shields.io/badge/DOI-10.1016%2Fj.cmpb.2025.109065-blue)](https://doi.org/10.1016/j.cmpb.2025.109065)
 
@@ -23,10 +35,22 @@
     pip install poetry
     poetry install
 ```
+Sometimes the nnUZoo can be problematic to install over github, so as a default it is commented out in pyproject.toml. In this case the installation should be performed like this:
+```bash
+    python3 -m venv env
+    source env/bin/activate
+    pip install poetry
+    poetry install
+    poetry run pip install git+https://github.com/AI-in-Cardiovascular-Medicine/nnUZoo@main
+```
+For developers download additionally the dev dependencies:
+```bash
+    poetry install --with dev
+```
 
-If you plan on using GPU acceleration for model training and inference, make sure to install the required tools (NVIDIA toolkit, etc.) and the corresponding version of Tensorflow.
+If you plan on using GPU acceleration for model training and inference, make sure to install the required tools (NVIDIA toolkit, etc.) and the corresponding version of Pytorch/Tensorflow.
 
-The program was tested on Ubuntu 22.04.5 with python 3.10.12. We tested it on differnt hardware, NVIDIA drivers and CUDA tended to cause problems cross-platforms. Make sure to download the corresponding drivers and CUDA toolkit, e.g.:
+The program was tested on Ubuntu 22.04.5 with python 3.10.12. We tested it on different hardware, NVIDIA drivers and CUDA tended to cause problems cross-platforms. Make sure to download the corresponding drivers and CUDA toolkit, e.g.:
 ```bash
 sudo apt update
 sudo apt upgrade
@@ -87,7 +111,7 @@ This will open a graphical user interface (GUI) in which you have access to the 
 
 For ease-of-use, this application contains several keyboard shortcuts.\
 In the current state, these cannot be changed by the user (at least not without changing the source code).
-
+### v1.0.0 (Base module and state of publication)
 - Press <kbd>Ctrl</kbd> + <kbd>O</kbd> to open a DICOM/NIfTi file
 - Use the <kbd>A</kbd> and <kbd>D</kbd> keys to move through the IVUS images frame-by-frame
 - If gated (diastolic/systolic) frames are available, you can move through those using <kbd>S</kbd> and <kbd>W</kbd>\
@@ -107,7 +131,12 @@ In the current state, these cannot be changed by the user (at least not without 
 - Press <kbd>Alt</kbd> + <kbd>Delete</kbd> to define a range of frames to remove gating
 - Press <kbd>Alt</kbd> + <kbd>S</kbd> to define a range of frames to switch systole and diastole in gated frames
 
-## Tutorial
+### v1.1.0 and higher
+- Press <kbd>Q</kbd> to manually draw an external elastic membrane (EEM) contour
+- Press <kbd>Y</kbd> to manually draw a calcification contour
+- Press <kbd>X</kbd> to manually draw a side branch contour
+
+## Tutorial (v1.0.0 - Base module)
 An example case is provided under "/test_cases/patient_example", allowing to follow along.
 
 ### Window manipulation:
@@ -135,10 +164,13 @@ Movement patterns may vary between datasets; consequently, the final frame selec
 
 ![Demo](media/explanation_software_part3.gif)
 
-## Acknowledgements
+## Tutorial (v1.1.x - Full segmentation)
+Version 1.1.0 and higher offer the additional possibility to segment the EEM, calcification and side branches. This works in the same style as for the base contours. Clicking on any contour in the image automatically sets it as the active contour.
 
-The starting point of this project was the [DeepIVUS](https://github.com/dmolony3/DeepIVUS) public repository by [David](https://github.com/dmolony3) (cloned on May 22, 2023).
+> [!NOTE]
+> The segmentation models are currently only trained for lumen contours. In the future, we will implement additional models for EEM segmentation and calcium segmentation.
 
+![Demo](media/v1.1.0update.gif)
 
 # Citation
 Please kindly cite the following paper if you use this repository.

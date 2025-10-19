@@ -56,45 +56,104 @@ def read_contours(main_window, file_name=None):
 
     if success:
         main_window.contours_drawn = True
-        main_window.display.set_data(main_window.data['lumen'], main_window.images)
+        contour_type = getattr(main_window, "ContourType", "lumen")
+        if contour_type in main_window.data:
+            main_window.display.set_data(main_window.data[contour_type], main_window.images)
+        else:
+            main_window.display.set_data(main_window.data['lumen'], main_window.images)
         main_window.hide_contours_box.setChecked(False)
 
     return success
 
 
-def write_contours(main_window):
-    """Writes contours to a json/xml file"""
+def _to_serializable(obj):
+    """Simple helper passed to json.dump to handle numpy types."""
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    # fallback
+    try:
+        return str(obj)
+    except Exception:
+        return None
 
+
+def write_contours(main_window):
+    """Writes contours to a json/xml file.
+
+    - If main_window.config.save.use_xml_files is True: write legacy XML for lumen
+      (keeps compatibility) AND write a JSON sidecar that contains all contour layers.
+    - Otherwise: write a JSON containing all of main_window.data (serialized).
+    """
     if not main_window.image_displayed:
-        ErrorMessage(main_window, 'Cannot write contours before reading input file')
+        ErrorMessage(main_window, "Cannot write contours before reading input file")
         return
 
+    try:
+        base = os.path.splitext(main_window.file_name)[0]
+    except Exception:
+        base = getattr(main_window, "file_name", "contours_output")
+        base = os.path.splitext(base)[0]
+
+    version_str = globals().get("version_file_str", version_file_str)
+    json_out_path = f"{base}_contours_{version_str}.json"
+
+    # Ensure main_window.data exists and keys are in sensible form
+    data = getattr(main_window, "data", {}) or {}
+
     if main_window.config.save.use_xml_files:
-        # reformat data for compatibility with write_xml function
-        x, y = [], []
-        for frame in range(main_window.metadata['num_frames']):
-            if frame < len(main_window.data['lumen'][0]):
-                new_x_lumen = main_window.data['lumen'][0][frame]
-                new_y_lumen = main_window.data['lumen'][1][frame]
+        # Legacy XML export for lumen (keeps previous behaviour)
+        # Build x,y lists frame-by-frame from lumen data (defensive)
+        num_frames = main_window.metadata.get("num_frames", 0)
+        x = []
+        y = []
+        lumen_data = data.get("lumen", [[], []])
+        lx = lumen_data[0] if len(lumen_data) > 0 else []
+        ly = lumen_data[1] if len(lumen_data) > 1 else []
+
+        for frame in range(num_frames):
+            if frame < len(lx):
+                new_x_lumen = lx[frame] or []
             else:
                 new_x_lumen = []
+            if frame < len(ly):
+                new_y_lumen = ly[frame] or []
+            else:
                 new_y_lumen = []
 
             x.append(new_x_lumen)
             y.append(new_y_lumen)
 
-        write_xml(
-            x,
-            y,
-            main_window.images.shape,
-            main_window.metadata['resolution'],
-            main_window.ivusPullbackRate,
-            main_window.data['phases'],
-            main_window.file_name,
-        )
+        try:
+            write_xml(
+                x,
+                y,
+                main_window.images.shape,
+                main_window.metadata.get("resolution"),
+                getattr(main_window, "ivusPullbackRate", None),
+                data.get("phases"),
+                main_window.file_name,
+            )
+            logger.info(f"Wrote legacy XML for lumen to {main_window.file_name} (and sidecar JSON)")
+        except Exception as e:
+            logger.exception(f"Failed to write XML contours: {e}")
+
+        try:
+            with open(json_out_path, "w") as out_file:
+                json.dump(data, out_file, default=_to_serializable, indent=2)
+            logger.info(f"Wrote contours JSON sidecar to: {json_out_path}")
+        except Exception as e:
+            logger.exception(f"Failed to write contours JSON sidecar: {e}")
+
     else:
-        with open(os.path.join(main_window.file_name + f'_contours_{version_file_str}.json'), 'w') as out_file:
-            json.dump(main_window.data, out_file)
+        # Write the whole main_window.data to JSON (better safe than sorry)
+        try:
+            with open(json_out_path, "w") as out_file:
+                json.dump(data, out_file, default=_to_serializable, indent=2)
+            logger.info(f"Wrote contours JSON to: {json_out_path}")
+        except Exception as e:
+            logger.exception(f"Failed to write contours JSON: {e}")
 
 
 def map_to_list(contours):

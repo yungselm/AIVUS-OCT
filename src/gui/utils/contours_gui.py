@@ -1,13 +1,18 @@
 from gui.popup_windows.message_boxes import ErrorMessage
+from gui.left_half.IVUS_display import ContourType
 
-
-def new_contour(main_window):
+def new_contour(main_window, contour_type: ContourType):
     if not main_window.image_displayed:
         ErrorMessage(main_window, 'Cannot create manual contour before reading input file')
         return
+    
+    main_window.display.set_active_contour_type(contour_type)
+    key = contour_type.value
+    main_window.display._ensure_main_window_contour_structure(key)
 
-    main_window.tmp_lumen_x = main_window.data['lumen'][0][main_window.display.frame]  # for Ctrl+Z
-    main_window.tmp_lumen_y = main_window.data['lumen'][1][main_window.display.frame]
+    xlist = main_window.data[key][0][main_window.display.frame] or []
+    ylist = main_window.data[key][1][main_window.display.frame] or []
+    main_window.tmp_contours[key] = (xlist.copy(), ylist.copy())
 
     main_window.display.start_contour()
     main_window.hide_contours_box.setChecked(False)

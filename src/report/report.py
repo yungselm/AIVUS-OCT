@@ -9,6 +9,7 @@ from loguru import logger
 from PyQt5.QtWidgets import QProgressDialog
 from PyQt5.QtCore import Qt
 from shapely.geometry import Polygon
+from shapely.errors import TopologicalError
 from itertools import combinations
 
 from gui.popup_windows.message_boxes import ErrorMessage, SuccessMessage
@@ -59,6 +60,28 @@ def report(main_window, lower_limit=None, upper_limit=None, suppress_messages=Fa
     return report_data
 
 
+def _safe_polygon_area(x_coords, y_coords, frame, contour_name, main_window):
+    """Build polygon from coordinate lists and return area in mm². 
+    On revocerable errors return 0 and log full exception + context."""
+    if not x_coords or not y_coords:
+        logger.warning(f'Empty coordinates for {contour_name} contour at frame {frame}, returning area 0.')
+        return 0
+    
+    try:
+        poly = Polygon([(x, y) for x, y in zip(x_coords, y_coords)])
+        return poly.area * main_window.metadata['resolution'] ** 2
+    except (ValueError, TypeError, TopologicalError) as e:
+        logger.bind(frame=frame, contour=contour_name, file=main_window.file_name).exception(
+            f'Error computing area for {contour_name} contour at frame {frame}: {e}'
+        )
+        return 0
+    except Exception:
+        logger.bind(frame=frame, contour=contour_name, file=main_window.file_name).exception(
+            f'Unexpected error computing area for {contour_name} contour at frame {frame}'
+        )
+        raise
+
+
 def compute_all(main_window, contoured_frames, suppress_messages, plot=True, save_as_csv=True):
     """compute all metrics and plot if desired"""
     if not suppress_messages:
@@ -90,11 +113,65 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         elliptic_ratio = [0] * main_window.metadata['num_frames']
         vector_length = [0] * main_window.metadata['num_frames']
         vector_angle = [0] * main_window.metadata['num_frames']
-    lumen_x = [contour[0] if contour is not None else None for contour in main_window.display.full_contours]
-    lumen_y = [contour[1] if contour is not None else None for contour in main_window.display.full_contours]
+
+    # helper to fetch per-type full_contours defensively
+    def _get_full_list_by_name(name):
+        fc = getattr(main_window.display, "full_contours", None)
+        if fc is None:
+            return None
+        if isinstance(fc, dict):
+            return fc.get(name, None)
+        if isinstance(fc, list):
+            return fc
+        return None
+
+    # Lumen full contours (defensive)
+    lumen_full_list = _get_full_list_by_name("lumen")
+    # Fallback: try display.get_full_contour_list for backward compatibility
+    if lumen_full_list is None:
+        try:
+            from gui.left_half.IVUS_display import ContourType
+            lumen_full_list = main_window.display.get_full_contour_list(ContourType.LUMEN)
+        except (ImportError, AttributeError) as e:
+            logger.bind(file=main_window.file_name).warning(
+                f'Could not import ContourType/get_full_contour_list; using display.full_contours fallback. Reason: {e}'
+            )
+            lumen_full_list = getattr(main_window.display, "full_contours", None)
+
+    # !! Build other contour full lists (eem, calcium, branch) for CSV saving / optional metrics, careful if new added !!
+    eem_full_list = _get_full_list_by_name("eem")
+    calc_full_list = _get_full_list_by_name("calcium")
+    branch_full_list = _get_full_list_by_name("branch")
+
+    def build_xy_lists(full_list):
+        if full_list is None:
+            nframes = main_window.metadata.get("num_frames", 0)
+            return [None] * nframes, [None] * nframes
+        x_list = [contour[0] if (contour is not None and len(contour) >= 2) else None for contour in full_list]
+        y_list = [contour[1] if (contour is not None and len(contour) >= 2) else None for contour in full_list]
+        return x_list, y_list
+
+    lumen_x, lumen_y = build_xy_lists(lumen_full_list)
+    eem_x, eem_y = build_xy_lists(eem_full_list)
+    calc_x, calc_y = build_xy_lists(calc_full_list)
+    branch_x, branch_y = build_xy_lists(branch_full_list)
+
+    # Ensure main_window.data has an 'eem_area' list to write into (defensive)
+    n_frames = main_window.metadata.get('num_frames', len(lumen_x) if lumen_x is not None else 0)
+    if 'eem_area' not in main_window.data or len(main_window.data['eem_area']) < n_frames:
+        main_window.data.setdefault('eem_area', [0] * n_frames)
 
     for frame in contoured_frames:
-        if lumen_area[frame] and elliptic_ratio[frame] != 0:  # values already computed for this frame -> skip
+        # skip frames already computed (defensive check)
+        if lumen_area[frame] and elliptic_ratio[frame] != 0:
+            # compute EEM area if not present
+            if eem_x and eem_x[frame] is not None and (not main_window.data['eem_area'][frame]):
+                area = _safe_polygon_area(eem_x[frame], eem_y[frame], frame=frame, contour_name="eem", main_window=main_window)
+                main_window.data['eem_area'][frame] = area
+            continue
+
+        # dmake sure lumen contour exists
+        if lumen_x[frame] is None or lumen_y[frame] is None:
             continue
 
         polygon = Polygon([(x, y) for x, y in zip(lumen_x[frame], lumen_y[frame])])
@@ -112,30 +189,28 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
         vector_length[frame], vector_angle[frame] = centroid_center_vector(
             main_window, centroid_x[frame], centroid_y[frame]
         )
+
+        # Compute EEM area for this frame if EEM contour exists
+        if eem_x and eem_x[frame] is not None:
+            area = _safe_polygon_area(eem_x[frame], eem_y[frame], frame=frame, contour_name="eem", main_window=main_window)
+            main_window.data['eem_area'][frame] = area
+
         if not suppress_messages:
             progress.setValue(frame)
             if progress.wasCanceled():
                 return None
 
     report_data = pd.DataFrame()
-    report_data['frame'] = [
-        frame + 1 for frame in contoured_frames
-    ]  # want 1-based indexing for direct comparison with GUI
-    # since frame_start is not at 0, we must shift position by pullback_start_frame
+    report_data['frame'] = [frame + 1 for frame in contoured_frames]
     report_data['position'] = 0
     n_frames = main_window.metadata.get('num_frames', len(contoured_frames))
     start_frame = main_window.metadata['pullback_start_frame']
     if start_frame <= 0.25 * n_frames:
-        # subtract the offset for frames before the true start
         offset = main_window.metadata['pullback_length'][start_frame - 1]
-        report_data['position'] = [
-            main_window.metadata['pullback_length'][frame] for frame in contoured_frames
-            ]
+        report_data['position'] = [main_window.metadata['pullback_length'][frame] for frame in contoured_frames]
         report_data['position'] = report_data['position'] - offset
     else:
-        report_data['position'] = [
-            main_window.metadata['pullback_length'][frame] for frame in contoured_frames
-            ]
+        report_data['position'] = [main_window.metadata['pullback_length'][frame] for frame in contoured_frames]
     report_data['position'] = report_data['position'].apply(lambda x: max(x, 0))
     report_data['phase'] = [main_window.data['phases'][frame] for frame in contoured_frames]
     report_data['lumen_area'] = [lumen_area[frame] for frame in contoured_frames]
@@ -147,13 +222,29 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
     report_data['vector_angle'] = [vector_angle[frame] for frame in contoured_frames]
     report_data['measurement_1'] = [main_window.data['measure_lengths'][frame][0] for frame in contoured_frames]
     report_data['measurement_2'] = [main_window.data['measure_lengths'][frame][1] for frame in contoured_frames]
+
+    report_data['eem_area'] = [main_window.data.get('eem_area', [0] * n_frames)[frame] for frame in contoured_frames]
+
     main_window.data['elliptic_ratio'] = elliptic_ratio
     main_window.data['vector_length'] = vector_length
     main_window.data['vector_angle'] = vector_angle
 
-    if save_as_csv:  # write centered contours to .csv files
+    # Save CSVs for lumen (diastolic/systolic) and for other contours if present
+    if save_as_csv:
         save_csv_files(main_window, lumen_x, lumen_y, name='diastolic', frames=main_window.gated_frames_dia)
         save_csv_files(main_window, lumen_x, lumen_y, name='systolic', frames=main_window.gated_frames_sys)
+
+        # save EEM/Calcium/Branch CSVs if contours exist for any frame
+        if eem_x is not None and any(elem is not None for elem in eem_x):
+            save_csv_files(main_window, eem_x, eem_y, name='eem_diastolic', frames=main_window.gated_frames_dia)
+            save_csv_files(main_window, eem_x, eem_y, name='eem_systolic', frames=main_window.gated_frames_sys)
+        if calc_x is not None and any(elem is not None for elem in calc_x):
+            save_csv_files(main_window, calc_x, calc_y, name='calcium_diastolic', frames=main_window.gated_frames_dia)
+            save_csv_files(main_window, calc_x, calc_y, name='calcium_systolic', frames=main_window.gated_frames_sys)
+        if branch_x is not None and any(elem is not None for elem in branch_x):
+            save_csv_files(main_window, branch_x, branch_y, name='branch_diastolic', frames=main_window.gated_frames_dia)
+            save_csv_files(main_window, branch_x, branch_y, name='branch_systolic', frames=main_window.gated_frames_sys)
+
     if not suppress_messages:
         progress.close()
 
@@ -267,11 +358,16 @@ def farthest_points(main_window, exterior_coords, frame):
 
     longest_distance = max_distance * main_window.metadata['resolution']
 
-    # Separate x and y coordinates and append to the respective lists
-    x1, y1 = farthest_points[0]
-    x2, y2 = farthest_points[1]
-    farthest_point_x = [x1, x2]
-    farthest_point_y = [y1, y2]
+    try:
+        x1, y1 = farthest_points[0]
+        x2, y2 = farthest_points[1]
+        farthest_point_x = [x1, x2]
+        farthest_point_y = [y1, y2]
+    except TypeError:
+        logger.warning('No farthest points found, probably due to polygon shape')
+        farthest_point_x = [0, 0]
+        farthest_point_y = [0, 0]
+        longest_distance = 0
 
     main_window.data['longest_distance'][frame] = longest_distance
     main_window.data['farthest_point'][0][frame] = farthest_point_x
@@ -303,13 +399,12 @@ def closest_points(main_window, polygon, frame):
 
     shortest_distance = min_distance * main_window.metadata['resolution']
 
-    # Separate x and y coordinates and append to the respective lists
     try:
         x1, y1 = closest_points[0]
         x2, y2 = closest_points[1]
         closest_point_x = [x1, x2]
         closest_point_y = [y1, y2]
-    except TypeError:  # closest_points might be None for some very weird shapes
+    except TypeError:
         logger.warning('No closest points found, probably due to polygon shape')
         closest_point_x = [0, 0]
         closest_point_y = [0, 0]

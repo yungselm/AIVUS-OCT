@@ -63,7 +63,7 @@ def report(main_window, lower_limit=None, upper_limit=None, suppress_messages=Fa
 def _safe_polygon_area(x_coords, y_coords, frame, contour_name, main_window):
     """Build polygon from coordinate lists and return area in mm². 
     On revocerable errors return 0 and log full exception + context."""
-    if not x_coords or not y_coords:
+    if x_coords is None or y_coords is None or len(x_coords) == 0 or len(y_coords) == 0:
         logger.warning(f'Empty coordinates for {contour_name} contour at frame {frame}, returning area 0.')
         return 0
     

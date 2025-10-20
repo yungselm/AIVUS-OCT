@@ -77,10 +77,12 @@ def read_image(main_window):
                 'elliptic_ratio',
                 'vector_length',
                 'vector_angle',
+                'eem_area',
+                'percent_stenosis_text'
             ]:
                 main_window.data[key] = [0] * main_window.metadata['num_frames']
             main_window.data['phases'] = ['-'] * main_window.metadata['num_frames']
-            for key in ['lumen_centroid', 'farthest_point', 'nearest_point', 'lumen']:
+            for key in ['lumen_centroid', 'farthest_point', 'nearest_point', 'lumen', 'eem', 'calcium', 'branch']:
                 main_window.data[key] = (
                     [[] for _ in range(main_window.metadata['num_frames'])],
                     [[] for _ in range(main_window.metadata['num_frames'])],

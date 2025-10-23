@@ -444,7 +444,7 @@ class IVUSDisplay(QGraphicsView):
 
         try:
             if lumen_area is not None and eem_area not in (None, 0):
-                percent = (1.0 - (lumen_area / eem_area)) * 100.0
+                percent = ((eem_area - lumen_area)/ eem_area) * 100.0
                 percent = max(0.0, min(100.0, percent))  # clamp 0..100
                 percent_text = f"{round(percent, 2)} %"
         except Exception:
@@ -486,7 +486,7 @@ class IVUSDisplay(QGraphicsView):
             f"Longest distance:\t{round(longest_distance, 2)} (mm)" if longest_distance is not None else "Longest distance:\t\tn/a",
             f"Shortest distance:\t{round(shortest_distance, 2)} (mm)" if shortest_distance is not None else "Shortest distance:\t\tn/a",
             f"EEM area:\t\t{round(eem_area, 2)} (mm\N{SUPERSCRIPT TWO})" if eem_area is not None else "EEM area:\t\tn/a",
-            f"Percent stenosis:\t{percent_stenosis_text}",
+            f"Plaque burden:\t\t{percent_stenosis_text}",
         ]
 
         self.frame_metrics_text = QGraphicsTextItem("\n".join(lines))

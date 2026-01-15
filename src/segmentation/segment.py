@@ -7,30 +7,30 @@ from gui.popup_windows.message_boxes import ErrorMessage, SuccessMessage
 from gui.popup_windows.frame_range_dialog import FrameRangeDialog
 
 
-def segment(main_window):
-    """Automatic segmentation of IVUS images"""
-    main_window.status_bar.showMessage('Segmenting frames...')
-    if not main_window.image_displayed:
-        ErrorMessage(main_window, 'Cannot perform automatic segmentation before reading input file')
-        main_window.status_bar.showMessage(main_window.waiting_status)
-        return
+# def segment(main_window):
+#     """Automatic segmentation of IVUS images"""
+#     main_window.status_bar.showMessage('Segmenting frames...')
+#     if not main_window.image_displayed:
+#         ErrorMessage(main_window, 'Cannot perform automatic segmentation before reading input file')
+#         main_window.status_bar.showMessage(main_window.waiting_status)
+#         return
 
-    segment_dialog = FrameRangeDialog(main_window)
+#     segment_dialog = FrameRangeDialog(main_window)
 
-    if segment_dialog.exec_():
-        lower_limit, upper_limit = segment_dialog.getInputs()
-        masks = main_window.predictor(main_window.images, lower_limit, upper_limit)
-        if masks is not None:
-            main_window.data['lumen'] = mask_to_contours(main_window, masks, lower_limit, upper_limit)
-            main_window.data['lumen_area'] = [0] * main_window.metadata[
-                'num_frames'
-            ]  # ensure all metrics are recalculated for the report
-            main_window.contours_drawn = True
-            main_window.display.set_data(main_window.data['lumen'], main_window.images)
-            main_window.hide_contours_box.setChecked(False)
+#     if segment_dialog.exec_():
+#         lower_limit, upper_limit = segment_dialog.getInputs()
+#         masks = main_window.predictor(main_window.images, lower_limit, upper_limit)
+#         if masks is not None:
+#             main_window.data['lumen'] = mask_to_contours(main_window, masks, lower_limit, upper_limit)
+#             main_window.data['lumen_area'] = [0] * main_window.metadata[
+#                 'num_frames'
+#             ]  # ensure all metrics are recalculated for the report
+#             main_window.contours_drawn = True
+#             main_window.display.set_data(main_window.data['lumen'], main_window.images)
+#             main_window.hide_contours_box.setChecked(False)
 
-    SuccessMessage(main_window, 'Automatic segmentation')
-    main_window.status_bar.showMessage(main_window.waiting_status)
+#     SuccessMessage(main_window, 'Automatic segmentation')
+#     main_window.status_bar.showMessage(main_window.waiting_status)
 
 
 def mask_to_contours(main_window, masks, lower_limit, upper_limit, config=None):

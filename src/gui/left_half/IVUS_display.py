@@ -1,5 +1,5 @@
-import math
 import cv2
+import math
 
 from enum import Enum
 from dataclasses import dataclass
@@ -7,9 +7,9 @@ from typing import Tuple, Union, Any
 
 import numpy as np
 from loguru import logger
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsTextItem
-from PyQt5.QtCore import Qt, QLineF, QPointF
-from PyQt5.QtGui import QPixmap, QImage, QColor, QFont, QPen
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsTextItem
+from PyQt6.QtCore import Qt, QLineF, QPointF
+from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QPen
 from shapely.geometry import Polygon
 
 from gui.utils.geometry import Point, Spline, get_qt_pen
@@ -101,8 +101,8 @@ class IVUSDisplay(QGraphicsView):
         self.window_level = self.initial_window_level
         self.window_width = self.initial_window_width
 
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         image = QGraphicsPixmapItem(QPixmap(self.image_size, self.image_size))
         self.graphics_scene.addItem(image)
@@ -250,11 +250,10 @@ class IVUSDisplay(QGraphicsView):
                 self.graphics_scene.removeItem(item)
                 for item in self.graphics_scene.items()
                 if isinstance(item, image_types)
-            ]  # clear previous scene
+            ]
             self.active_point = None
             self.active_point_index = None
 
-            # Calculate lower and upper bounds for the adjusted window level and window width
             lower_bound = self.window_level - self.window_width / 2
             upper_bound = self.window_level + self.window_width / 2
 
@@ -270,18 +269,26 @@ class IVUSDisplay(QGraphicsView):
                 normalised_data = cv2.bilateralFilter(normalised_data, 9, 75, 75)
 
             if self.main_window.colormap_enabled:
-                # Apply an orange-blue colormap
                 colormap = cv2.applyColorMap(normalised_data, cv2.COLORMAP_COOL)
                 q_image = QImage(colormap.data, width, height, width * 3, QImage.Format.Format_RGB888).scaled(
-                    self.image_size, self.image_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+                    self.image_size, self.image_size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
                 )
             else:
                 q_image = QImage(normalised_data.data, width, height, width, QImage.Format.Format_Grayscale8).scaled(
-                    self.image_size, self.image_size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation
+                    self.image_size, self.image_size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
                 )
 
             image = QGraphicsPixmapItem(QPixmap.fromImage(q_image))
             self.graphics_scene.addItem(image)
+
+            self.main_window.longitudinal_view.update_marker(self.frame)
+            marker = Marker(
+                int((self.image_width // 2) * self.scaling_factor),
+                0,
+                int((self.image_width // 2) * self.scaling_factor),
+                int(height * self.scaling_factor),
+            )
+            self.graphics_scene.addItem(marker)
 
             self.main_window.longitudinal_view.update_marker(self.frame)
             marker = Marker(
@@ -348,7 +355,7 @@ class IVUSDisplay(QGraphicsView):
                                 farthest_point_x[1] * self.scaling_factor,
                                 farthest_point_y[1] * self.scaling_factor,
                             ),
-                            QPen(Qt.yellow, self.point_thickness * 2),
+                            QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
                         )
                         self.graphics_scene.addLine(
                             QLineF(
@@ -357,7 +364,7 @@ class IVUSDisplay(QGraphicsView):
                                 closest_point_x[1] * self.scaling_factor,
                                 closest_point_y[1] * self.scaling_factor,
                             ),
-                            QPen(Qt.yellow, self.point_thickness * 2),
+                            QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
                         )
 
                     elliptic_ratio = (longest_distance / shortest_distance) if shortest_distance != 0 else 0
@@ -383,11 +390,11 @@ class IVUSDisplay(QGraphicsView):
                 )
             else:
                 phase = ''
-                color = Qt.white
+                color = Qt.GlobalColor.white
             self.phase_text = QGraphicsTextItem(phase)
             self.phase_text.setDefaultTextColor(color)
             self.phase_text.setX(self.image_size - self.image_size / 3.75)
-            self.phase_text.setFont(QFont('Helvetica', int(self.image_size / 50), QFont.Bold))
+            self.phase_text.setFont(QFont('Helvetica', int(self.image_size / 50), QFont.Weight.Bold))
             self.graphics_scene.addItem(self.phase_text)
 
     def compute_eem_and_percent_stenosis(self, frame: int, lumen_area: float):
@@ -561,7 +568,7 @@ class IVUSDisplay(QGraphicsView):
         if start_point[0] is None:  # occurs when Point has been deleted during draw (e.g. by RMB click)
             self.points_to_draw = []
             self.contour_mode = False
-            self.main_window.setCursor(Qt.ArrowCursor)
+            self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
             self.display_image(update_contours=True)
         else:
             if len(self.points_to_draw) > 3:  # start drawing spline after 3 points
@@ -611,7 +618,7 @@ class IVUSDisplay(QGraphicsView):
             self.set_active_contour_type(contour_type)
 
         self.measure_index = None
-        self.main_window.setCursor(Qt.CrossCursor)
+        self.main_window.setCursor(Qt.CursorShape.CrossCursor)
         self.contour_mode = True
         self.points_to_draw = []
 
@@ -625,7 +632,7 @@ class IVUSDisplay(QGraphicsView):
     def stop_contour(self):
         if self.main_window.image_displayed:
             self.contour_mode = False
-            self.main_window.setCursor(Qt.ArrowCursor)
+            self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
             self.display_image(update_contours=True)
 
             contour_for_frame = self.get_full_contour_for_frame(self.active_contour_type, self.frame)
@@ -675,7 +682,7 @@ class IVUSDisplay(QGraphicsView):
             self.graphics_scene.addLine(line, get_qt_pen(self.measure_colors[index], self.point_thickness))
             if new:
                 self.measure_index = None
-                self.main_window.setCursor(Qt.ArrowCursor)
+                self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
 
     def start_measure(self, index: int):
         if self.contour_mode:
@@ -688,7 +695,7 @@ class IVUSDisplay(QGraphicsView):
     def stop_measure(self, index):
         if self.main_window.image_displayed:
             self.measure_index = None
-            self.main_window.setCursor(Qt.ArrowCursor)
+            self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
             self.display_image(update_contours=True)
             self.main_window.longitudinal_view.update_measure(
                 self.frame, index, self.main_window['measures'][self.frame][index]
@@ -740,7 +747,7 @@ class IVUSDisplay(QGraphicsView):
                 original_y = pos.y() / self.scaling_factor
                 self.main_window.data['reference'][self.frame] = [original_x, original_y]
                 self.reference_mode = False
-                self.main_window.setCursor(Qt.ArrowCursor)
+                self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
                 self.display_image(update_contours=True)
             else:
                 # attempt to switch active contour based on nearest knotpoint across all contour types (new feature)
@@ -785,7 +792,7 @@ class IVUSDisplay(QGraphicsView):
                 point = [item for item in items if isinstance(item, Point)]
                 spline = [item for item in items if isinstance(item, Spline)]
                 if point and point[0] in self.contour_points:
-                    self.main_window.setCursor(Qt.BlankCursor)  # remove cursor for precise contour changes
+                    self.main_window.setCursor(Qt.CursorShape.BlankCursor)  # remove cursor for precise contour changes
                     # Convert mouse position to item position
                     # https://stackoverflow.com/questions/53627056/how-to-get-cursor-click-position-in-qgraphicsitem-coordinate-system
                     self.active_point_index = self.contour_points.index(point[0])
@@ -793,7 +800,7 @@ class IVUSDisplay(QGraphicsView):
                     self.active_point = point[0]
                 elif spline:  # clicked on contour
                     path_index = self.current_contour.on_path(pos)
-                    self.main_window.setCursor(Qt.BlankCursor)
+                    self.main_window.setCursor(Qt.CursorShape.BlankCursor)
                     cfg = self.contour_configs.get(self.active_contour_type)
                     self.active_point = Point(
                         (pos.x(), pos.y()),
@@ -829,7 +836,7 @@ class IVUSDisplay(QGraphicsView):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:  # for some reason event.buttons() does not work here
             if self.active_point_index is not None:
-                self.main_window.setCursor(Qt.ArrowCursor)
+                self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
                 item = self.active_point
                 item.reset_color()
 

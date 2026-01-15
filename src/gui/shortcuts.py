@@ -5,9 +5,9 @@ import numpy as np
 
 from loguru import logger
 from functools import partial
-from PyQt5.QtGui import QKeySequence, QDesktopServices
-from PyQt5.QtWidgets import QShortcut, QApplication
-from PyQt5.QtCore import Qt, QUrl
+from PyQt6.QtGui import QKeySequence, QDesktopServices, QShortcut, QAction
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import Qt, QUrl
 
 from gui.popup_windows.frame_range_dialog import FrameRangeDialog
 from gui.popup_windows.message_boxes import ErrorMessage, SuccessMessage
@@ -16,8 +16,8 @@ from gui.utils.contours_gui import new_contour, new_measure
 from input_output.metadata import MetadataWindow
 from input_output.read_image import read_image
 from input_output.contours_io import write_contours, save_gated_images
-from segmentation.save_as_nifti import save_as_nifti
-from segmentation.segment import segment
+# from segmentation.save_as_nifti import save_as_nifti
+# from segmentation.segment import segment
 from report.report import report
 
 
@@ -36,13 +36,13 @@ def init_shortcuts(main_window):
     QShortcut(QKeySequence('Alt+S'), main_window, partial(switch_phases, main_window))
     # Traverse frames
     QShortcut(QKeySequence('W'), main_window, main_window.display_slider.next_gated_frame)
-    QShortcut(QKeySequence(Qt.Key_Up), main_window, main_window.display_slider.next_gated_frame)
+    QShortcut(QKeySequence(Qt.Key.Key_Up), main_window, main_window.display_slider.next_gated_frame)
     QShortcut(QKeySequence('A'), main_window, main_window.display_slider.last_frame)
-    QShortcut(QKeySequence(Qt.Key_Left), main_window, main_window.display_slider.last_frame)
+    QShortcut(QKeySequence(Qt.Key.Key_Left), main_window, main_window.display_slider.last_frame)
     QShortcut(QKeySequence('S'), main_window, main_window.display_slider.last_gated_frame)
-    QShortcut(QKeySequence(Qt.Key_Down), main_window, main_window.display_slider.last_gated_frame)
+    QShortcut(QKeySequence(Qt.Key.Key_Down), main_window, main_window.display_slider.last_gated_frame)
     QShortcut(QKeySequence('D'), main_window, main_window.display_slider.next_frame)
-    QShortcut(QKeySequence(Qt.Key_Right), main_window, main_window.display_slider.next_frame)
+    QShortcut(QKeySequence(Qt.Key.Key_Right), main_window, main_window.display_slider.next_frame)
 
 
 def init_menu(main_window):
@@ -52,10 +52,10 @@ def init_menu(main_window):
     file_menu.addSeparator()
     save_contours = file_menu.addAction('Save Contours', partial(write_contours, main_window))
     save_contours.setShortcut('Ctrl+S')
-    nifti_menu = file_menu.addMenu('Save NIfTis')
-    nifti_menu.addAction('Contoured Frames', partial(save_as_nifti, main_window, mode='contoured'))
-    nifti_menu.addAction('Gated Frames', partial(save_as_nifti, main_window, mode='gated'))
-    nifti_menu.addAction('All Frames', partial(save_as_nifti, main_window, mode='all'))
+    # nifti_menu = file_menu.addMenu('Save NIfTis')
+    # nifti_menu.addAction('Contoured Frames', partial(save_as_nifti, main_window, mode='contoured'))
+    # nifti_menu.addAction('Gated Frames', partial(save_as_nifti, main_window, mode='gated'))
+    # nifti_menu.addAction('All Frames', partial(save_as_nifti, main_window, mode='all'))
     save_report = file_menu.addAction('Save Report', partial(report, main_window))
     save_report.setShortcut('Ctrl+R')
     file_menu.addAction('Save Video Pullback', partial(save_video_pullback, main_window))
@@ -102,7 +102,7 @@ def init_menu(main_window):
 
     run_menu = main_window.menu_bar.addMenu('Run')
     run_menu.addAction('Extract Diastolic and Systolic Frames', main_window.contour_based_gating)
-    run_menu.addAction('Automatic Segmentation', partial(segment, main_window))
+    # run_menu.addAction('Automatic Segmentation', partial(segment, main_window))
 
     metadata_menu = main_window.menu_bar.addMenu('Metadata')
     metadata_menu.addAction('Show Metadata', partial(show_metadata, main_window))
@@ -232,9 +232,9 @@ def show_metadata(main_window):
 
 def open_url(main_window, description=None):
     if description == 'github':
-        url = 'https://github.com/cardionaut/AAOCASeg'
+        url = 'https://github.com/yungselm/AIVUS-OCT'
     elif description == 'keyboard_shortcuts':
-        url = 'https://github.com/cardionaut/AAOCASeg?tab=readme-ov-file#keyboard-shortcuts'
+        url = 'https://github.com/yungselm/AIVUS-OCT?tab=readme-ov-file#keyboard-shortcuts'
     else:
         video_player = VideoPlayer(main_window)
         video_player.play('media/about.mp4')

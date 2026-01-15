@@ -5,7 +5,7 @@ import SimpleITK as sitk
 import numpy as np
 import matplotlib.pyplot as plt
 from loguru import logger
-from PyQt5.QtWidgets import QFileDialog
+from PyQt6.QtWidgets import QFileDialog
 
 from gui.popup_windows.message_boxes import ErrorMessage
 from input_output.metadata import parse_dicom
@@ -20,10 +20,12 @@ def read_image(main_window):
     Images are displayed in the graphics scene.
     """
     main_window.status_bar.showMessage('Reading image file...')
-    options = QFileDialog.Options()
-    options = QFileDialog.DontUseNativeDialog
     file_name, _ = QFileDialog.getOpenFileName(
-        main_window, 'QFileDialog.getOpenFileName()', '..', 'All files (*)', options=options
+        main_window, 
+        'Open IVUS File', 
+        '..', 
+        'All files (*)', 
+        options=QFileDialog.Option.DontUseNativeDialog
     )
     if file_name:
         main_window.gating_display.fig.clear()
@@ -38,7 +40,8 @@ def read_image(main_window):
             try:  # NIfTi
                 img = sitk.ReadImage(file_name)
                 main_window.images = sitk.GetArrayFromImage(img)
-                main_window.file_name = main_window.file_name.split('_')[0]  # remove _img.nii suffix
+                # main_window.file_name = main_window.file_name.split('_')[0]  # remove _img.nii suffix
+                main_window.file_name = os.path.basename(file_name).split('_')[0]
                 # TODO: Do the same as parse_dicom here
             except:
                 ErrorMessage(

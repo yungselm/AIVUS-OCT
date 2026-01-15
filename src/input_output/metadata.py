@@ -1,13 +1,13 @@
 import numpy as np
 
 from loguru import logger
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QMainWindow,
     QInputDialog,
     QLineEdit,
     QTableWidgetItem,
 )
-from PyQt5.QtCore import Qt
+from PyQt6.QtCore import Qt
 
 
 class MetadataWindow(QMainWindow):
@@ -51,7 +51,7 @@ def parse_dicom(main_window):
             main_window,
             'Pullback Speed',
             'No pullback speed found, please enter pullback speed (mm/s)',
-            QLineEdit.Normal,
+            QLineEdit.EchoMode.Normal,
             '0.5',
         )
         pullback_rate = float(pullback_rate)
@@ -146,5 +146,5 @@ def parse_dicom(main_window):
     main_window.metadata_table.verticalHeader().hide()
     main_window.metadata_table.resizeColumnsToContents()
     main_window.metadata_table.resizeRowsToContents()
-    main_window.metadata_table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    main_window.metadata_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    main_window.metadata_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    main_window.metadata_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

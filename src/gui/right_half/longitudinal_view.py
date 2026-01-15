@@ -1,8 +1,8 @@
 import numpy as np
 from loguru import logger
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsLineItem
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap, QImage, QColor, QPen
+from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsLineItem
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap, QImage, QColor, QPen
 
 from gui.utils.geometry import Point
 
@@ -19,8 +19,8 @@ class LongitudinalView(QGraphicsView):
         self.lview_contour_size = 2
         self.graphics_scene = QGraphicsScene()
 
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setScene(self.graphics_scene)
 
     def set_data(self, images, contours):
@@ -29,10 +29,14 @@ class LongitudinalView(QGraphicsView):
         self.points_on_marker = [None] * self.num_frames
         self.image_height = images.shape[1]
 
-        slice = images[:, :, self.image_height // 2]
-        slice = np.transpose(slice, (1, 0)).copy()  # need .copy() to avoid QImage TypeError
+        slice_data = images[:, :, self.image_height // 2]
+        slice_data = np.transpose(slice_data, (1, 0)).copy()  # need .copy() to avoid QImage TypeError
         longitudinal_image = QImage(
-            slice.data, self.num_frames, self.image_height, self.num_frames, QImage.Format_Grayscale8
+                slice_data.data, 
+                self.num_frames, 
+                self.image_height, 
+                self.num_frames, 
+                QImage.Format.Format_Grayscale8
         )
         image = QGraphicsPixmapItem(QPixmap.fromImage(longitudinal_image))
         self.graphics_scene.addItem(image)
@@ -106,7 +110,7 @@ class LongitudinalView(QGraphicsView):
 
 
 class Marker(QGraphicsLineItem):
-    def __init__(self, x1, y1, x2, y2, color=Qt.white):
+    def __init__(self, x1, y1, x2, y2, color=Qt.GlobalColor.white):
         super().__init__()
         pen = QPen(QColor(color), 1)
         pen.setDashPattern([1, 6])

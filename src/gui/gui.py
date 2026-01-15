@@ -1,19 +1,20 @@
 from loguru import logger
-from PyQt5.QtWidgets import (
+# Change 1: Updated namespace to PyQt6
+from PyQt6.QtWidgets import (
     QMainWindow,
     QMenuBar,
     QSplitter,
     QTableWidget,
     QStatusBar,
 )
-from PyQt5.QtCore import QTimer
+from PyQt6.QtCore import QTimer  # Change 2: Updated namespace
 
 from gui.left_half.left_half import LeftHalf
 from gui.right_half.right_half import RightHalf
 from gui.shortcuts import init_shortcuts, init_menu
 from input_output.contours_io import write_contours
 from gating.contour_based_gating import ContourBasedGating
-from segmentation.predict import Predict
+# from segmentation.predict import Predict
 
 
 class Master(QMainWindow):
@@ -25,7 +26,7 @@ class Master(QMainWindow):
         self.file_name = None
         self.autosave_interval = config.save.autosave_interval
         self.contour_based_gating = ContourBasedGating(self)
-        self.predictor = Predict(self)
+        # self.predictor = Predict(self)
         self.image_displayed = False
         self.contours_drawn = False
         self.hide_contours = False
@@ -64,7 +65,7 @@ class Master(QMainWindow):
         main_window_splitter.addWidget(LeftHalf(self)())
         main_window_splitter.addWidget(RightHalf(self)())
 
-        self.setWindowTitle('AIVUS-CAA Software')
+        self.setWindowTitle('AIVUS-OCT Software')
         self.setCentralWidget(main_window_splitter)
         self.showMaximized()
 

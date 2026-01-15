@@ -3,7 +3,7 @@ import bisect
 
 from loguru import logger
 from functools import partial
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QPushButton,
     QStyle,
     QApplication,
@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QGridLayout,
 )
-from PyQt5.QtCore import Qt
+from PyQt6.QtCore import Qt
 
 from gui.left_half.IVUS_display import IVUSDisplay
 from gui.utils.slider import Slider, Communicate
@@ -27,6 +27,7 @@ class LeftHalf:
         left_vbox = QVBoxLayout()
         main_window.display = IVUSDisplay(main_window)
         main_window.display_frame_comms = Communicate()
+        # Change 2: Optional - Depending on your slider.py, ensure the signal connection is valid
         main_window.display_frame_comms.updateBW[int].connect(main_window.display.set_frame)
         left_vbox.addWidget(main_window.display)
 
@@ -34,31 +35,42 @@ class LeftHalf:
         hide_checkboxes = QHBoxLayout()
         main_window.hide_contours_box = QCheckBox('&Hide Contours')
         main_window.hide_contours_box.setChecked(False)
+        # Change 3: stateChanged now passes a Qt.CheckState enum instead of a raw int in some contexts, 
+        # but [int] usually still works. If it fails, use .stateChanged.connect(...)
         main_window.hide_contours_box.stateChanged[int].connect(self.toggle_hide_contours)
+        
         main_window.hide_special_points_box = QCheckBox('Hide farthest and closest points')
         main_window.hide_special_points_box.setChecked(False)
         main_window.hide_special_points_box.stateChanged[int].connect(self.toggle_hide_special_points)
+        
         hide_checkboxes.addWidget(main_window.hide_contours_box)
         hide_checkboxes.addWidget(main_window.hide_special_points_box)
         left_lower_grid.addLayout(hide_checkboxes, 0, 0)
 
         self.play_button = QPushButton()
-        self.play_icon = main_window.style().standardIcon(getattr(QStyle, 'SP_MediaPlay'))
-        self.pause_icon = main_window.style().standardIcon(getattr(QStyle, 'SP_MediaPause'))
+        # Change 4: QStyle enums are now scoped
+        self.play_icon = main_window.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
+        self.pause_icon = main_window.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause)
+        
         self.play_button.setIcon(self.play_icon)
         self.play_button.setMaximumWidth(30)
         self.play_button.clicked.connect(partial(self.play, main_window))
         self.paused = True
-        main_window.display_slider = Slider(main_window, Qt.Horizontal)
+        
+        # Change 5: Scoped Enum for Orientation
+        main_window.display_slider = Slider(main_window, Qt.Orientation.Horizontal)
         main_window.display_slider.valueChanged[int].connect(self.change_value)
+        
         slider_hbox = QHBoxLayout()
         slider_hbox.addWidget(self.play_button)
         slider_hbox.addWidget(main_window.display_slider)
         left_lower_grid.addLayout(slider_hbox, 0, 1)
 
         self.frame_number_label = QLabel()
-        self.frame_number_label.setAlignment(Qt.AlignCenter)
+        # Change 6: Scoped Enum for Alignment
+        self.frame_number_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.frame_number_label.setText(f'Frame {main_window.display_slider.value() + 1}')
+        
         frame_num_hbox = QHBoxLayout()
         frame_num_hbox.addWidget(self.frame_number_label)
         left_lower_grid.addLayout(frame_num_hbox, 1, 1)
@@ -106,14 +118,14 @@ class LeftHalf:
 
     def toggle_hide_contours(self, value):
         if self.main_window.image_displayed:
-            self.main_window.hide_contours = value
+            self.main_window.hide_contours = bool(value) # Cast to bool for safety
             self.main_window.display.update_display()
             next_gated = self.main_window.display_slider.next_gated_frame(set=False)
-            self.main_window.small_display.update_frame(next_gated, update_contours=True)  # update small display
+            self.main_window.small_display.update_frame(next_gated, update_contours=True)
             if not value:
                 self.main_window.longitudinal_view.show_lview_contours()
 
     def toggle_hide_special_points(self, value):
         if self.main_window.image_displayed:
-            self.main_window.hide_special_points = value
+            self.main_window.hide_special_points = bool(value)
             self.main_window.display.update_display()

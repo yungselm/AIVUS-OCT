@@ -3,9 +3,9 @@ import bisect
 import numpy as np
 from loguru import logger
 from scipy.interpolate import splprep, splev
-from PyQt5.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem
-from PyQt5.QtCore import Qt, QPointF
-from PyQt5.QtGui import QPen, QPainterPath, QColor
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem
+from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtGui import QPen, QPainterPath, QColor
 
 
 class Point(QGraphicsEllipseItem):
@@ -30,14 +30,13 @@ class Point(QGraphicsEllipseItem):
             return None, None
 
     def update_color(self):
-        self.setPen(QPen(Qt.transparent, self.line_thickness))
+        self.setPen(QPen(Qt.GlobalColor.transparent, self.line_thickness))
 
     def reset_color(self):
         self.setPen(self.default_color)
 
     def update_pos(self, pos):
         """Updates the Point position"""
-
         self.setRect(pos.x(), pos.y(), self.point_radius, self.point_radius)
         return self.rect()
 
@@ -57,6 +56,7 @@ class Spline(QGraphicsPathItem):
         try:
             start_point = QPointF(points[0][0], points[1][0])
             self.path = QPainterPath(start_point)
+            # Python 3 / PyQt6 super() call
             super(Spline, self).__init__(self.path)
 
             self.full_contour = self.interpolate(points)
@@ -72,9 +72,10 @@ class Spline(QGraphicsPathItem):
             pass
 
     def interpolate(self, points):
-        """Interpolates the spline points at n_points points along spline"""
+        """Interpolates the spline points using B-splines"""
         points = np.array(points)
         try:
+            # per=1 for periodic (closed) splines
             tck, u = splprep(points, u=None, s=0.0, per=1)
         except ValueError:
             return (None, None)
@@ -129,12 +130,13 @@ class Spline(QGraphicsPathItem):
         return self.full_contour[0] / scaling_factor, self.full_contour[1] / scaling_factor
 
 def get_qt_pen(color, thickness, transparency=255):
+    # Change 3: GlobalColor namespace for getattr
     try:
-        color = getattr(Qt, color)
+        color_enum = getattr(Qt.GlobalColor, color)
     except (AttributeError, TypeError):
-        color = Qt.blue
+        color_enum = Qt.GlobalColor.blue
 
-    pen_color = QColor(color)
+    pen_color = QColor(color_enum)
     pen_color.setAlpha(transparency)
 
     return QPen(pen_color, thickness)

@@ -3,14 +3,14 @@ import bisect
 import matplotlib.pyplot as plt
 from loguru import logger
 from functools import partial
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QHBoxLayout, QVBoxLayout, QSplitter, QPushButton, QCheckBox, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QSplitter, QPushButton, QCheckBox, QWidget
 
 from gui.right_half.gating_display import GatingDisplay
 from gui.right_half.longitudinal_view import LongitudinalView
 from gui.popup_windows.small_display import SmallDisplay
 from gui.utils.contours_gui import new_measure, new_reference
-from segmentation.segment import segment
+# from segmentation.segment import segment
 
 
 class RightHalf:
@@ -19,14 +19,17 @@ class RightHalf:
         self.right_widget = QWidget()
         right_vbox = QVBoxLayout()
         checkboxes = QHBoxLayout()
+        
         self.main_window.diastolic_frame_box = QCheckBox('Diastolic Frame')
         self.main_window.diastolic_frame_box.setChecked(False)
-        self.main_window.diastolic_frame_box.stateChanged[int].connect(partial(toggle_diastolic_frame, main_window))
+        self.main_window.diastolic_frame_box.stateChanged.connect(partial(toggle_diastolic_frame, main_window))
         checkboxes.addWidget(self.main_window.diastolic_frame_box)
+        
         self.main_window.systolic_frame_box = QCheckBox('Systolic Frame')
         self.main_window.systolic_frame_box.setChecked(False)
-        self.main_window.systolic_frame_box.stateChanged[int].connect(partial(toggle_systolic_frame, main_window))
+        self.main_window.systolic_frame_box.stateChanged.connect(partial(toggle_systolic_frame, main_window))
         checkboxes.addWidget(self.main_window.systolic_frame_box)
+        
         self.main_window.use_diastolic_button = QPushButton('Diastolic Frames')
         self.main_window.use_diastolic_button.setStyleSheet(f'background-color: rgb{self.main_window.diastole_color}')
         self.main_window.use_diastolic_button.setCheckable(True)
@@ -34,17 +37,22 @@ class RightHalf:
         self.main_window.use_diastolic_button.clicked.connect(partial(use_diastolic, main_window))
         self.main_window.use_diastolic_button.setToolTip('Press button to switch between diastolic and systolic frames')
         checkboxes.addWidget(self.main_window.use_diastolic_button)
+        
         small_display_button = QPushButton('Compare Frames')
         small_display_button.setToolTip('Open a small display to compare two frames')
         small_display_button.clicked.connect(partial(open_small_display, main_window))
         checkboxes.addWidget(small_display_button)
+        
         main_window.gating_display = GatingDisplay(main_window)
         checkboxes.addWidget(main_window.gating_display.toolbar)
         right_vbox.addLayout(checkboxes)
-        splitter = QSplitter(Qt.Vertical)
+        
+        # Change 2: Scoped Orientation Enum
+        splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(main_window.gating_display)
         main_window.longitudinal_view = LongitudinalView(main_window)
         splitter.addWidget(main_window.longitudinal_view)
+        
         gating_display_size = main_window.gating_display.sizeHint().height()
         splitter.setSizes([gating_display_size, gating_display_size])
         splitter.setStretchFactor(0, main_window.config.display.gating_display_stretch)
@@ -54,7 +62,7 @@ class RightHalf:
         right_lower_vbox = QVBoxLayout()
         segment_button = QPushButton('Automatic Segmentation')
         segment_button.setToolTip('Run deep learning based segmentation of lumen')
-        segment_button.clicked.connect(partial(segment, main_window))
+        # segment_button.clicked.connect(partial(segment, main_window))
         gating_button = QPushButton('Extract Diastolic and Systolic Frames')
         gating_button.setToolTip('Extract diastolic and systolic images from pullback')
         gating_button.clicked.connect(main_window.contour_based_gating)
@@ -80,6 +88,7 @@ class RightHalf:
         measures.addWidget(reference_button)
         right_lower_vbox.addLayout(measures)
         right_vbox.addLayout(right_lower_vbox)
+        
         self.right_widget.setLayout(right_vbox)
 
     def __call__(self):

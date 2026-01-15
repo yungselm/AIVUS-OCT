@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from loguru import logger
-from PyQt5.QtWidgets import QProgressDialog
-from PyQt5.QtCore import Qt
+from PyQt6.QtWidgets import QProgressDialog
+from PyQt6.QtCore import Qt
 from shapely.geometry import Polygon
 from shapely.errors import TopologicalError
 from itertools import combinations
@@ -86,7 +86,8 @@ def compute_all(main_window, contoured_frames, suppress_messages, plot=True, sav
     """compute all metrics and plot if desired"""
     if not suppress_messages:
         progress = QProgressDialog(main_window)
-        progress.setWindowFlags(Qt.Dialog)
+        # Change 2: Scoped Window Flags
+        progress.setWindowFlags(Qt.WindowType.Dialog)
         progress.setModal(True)
         progress.setMinimum(0)
         progress.setMaximum(len(contoured_frames))

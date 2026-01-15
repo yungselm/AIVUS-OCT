@@ -5,7 +5,14 @@ from loguru import logger
 from gating.signal_processing import identify_extrema
 from gui.popup_windows.frame_range_dialog import StartFramesDialog
 
-from PyQt5.QtWidgets import QDialog, QVBoxLayout, QGroupBox, QRadioButton, QDialogButtonBox
+from PyQt6.QtWidgets import (
+    QDialog, 
+    QVBoxLayout, 
+    QGroupBox, 
+    QRadioButton, 
+    QDialogButtonBox
+)
+
 
 class  GatingMethodDialog(QDialog):
     def __init__(self, main_window):
@@ -36,7 +43,7 @@ class  GatingMethodDialog(QDialog):
         
         # Buttons
         self.buttons = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)

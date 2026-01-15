@@ -63,7 +63,7 @@ def report(main_window, lower_limit=None, upper_limit=None, suppress_messages=Fa
 def _safe_polygon_area(x_coords, y_coords, frame, contour_name, main_window):
     """Build polygon from coordinate lists and return area in mm². 
     On revocerable errors return 0 and log full exception + context."""
-    if not x_coords or not y_coords:
+    if x_coords is None or y_coords is None or len(x_coords) == 0 or len(y_coords) == 0:
         logger.warning(f'Empty coordinates for {contour_name} contour at frame {frame}, returning area 0.')
         return 0
     
@@ -425,24 +425,27 @@ def save_csv_files(main_window, lumen_x, lumen_y, name, frames):
     csv_out_dir = os.path.join(main_window.file_name + '_csv_files')
     logger.info(f'Saving {name} contours to {csv_out_dir}')
     os.makedirs(csv_out_dir, exist_ok=True)
-    # Get the image dimensions in mm needed to mirror over x-axis
     img_dim_mm = main_window.metadata['dimension'] * main_window.metadata['resolution']
 
     with open(os.path.join(csv_out_dir, f'{name}_contours.csv'), 'w', newline='') as contours_file:
         contours_writer = csv.writer(contours_file, delimiter='\t')
-        with open(os.path.join(csv_out_dir, f'{name}_reference_points.csv'), 'w', newline='') as reference_file:
+        distance_offset = main_window.metadata['pullback_length'][frames[0]]
+        for frame in frames:
+            if lumen_x[frame] is None:
+                continue
+            rows = zip(
+                [x * main_window.metadata['resolution'] for x in lumen_x[frame]],
+                [abs(y * main_window.metadata['resolution'] - img_dim_mm) for y in lumen_y[frame]],
+            )
+            for row in rows:
+                row = [frame + 1] + list(row) + [main_window.metadata['pullback_length'][frame] - distance_offset]
+                contours_writer.writerow(row)
+
+    if name in ('diastolic', 'systolic'):
+        ref_file_name = f'{name}_reference_points.csv'
+        with open(os.path.join(csv_out_dir, ref_file_name), 'w', newline='') as reference_file:
             reference_writer = csv.writer(reference_file, delimiter='\t')
-            distance_offset = main_window.metadata['pullback_length'][frames[0]]
             for frame in frames:
-                if lumen_x[frame] is None:  # no contour drawn for this frame
-                    continue
-                rows = zip(
-                    [x * main_window.metadata['resolution'] for x in lumen_x[frame]],
-                    [abs(y * main_window.metadata['resolution'] - img_dim_mm) for y in lumen_y[frame]],
-                )  # csv can only write rows, not columns directly
-                for row in rows:
-                    row = [frame + 1] + list(row) + [main_window.metadata['pullback_length'][frame] - distance_offset]
-                    contours_writer.writerow(row)
                 if main_window.data['reference'][frame] is not None:
                     reference_writer.writerow(
                         [

@@ -1,7 +1,7 @@
 <p align="center">
-  <a href="https://github.com/AI-in-Cardiovascular-Medicine/AIVUS-CAA.jpg">
+  <a href="https://github.com/yungselm/AIVUS-OCT.jpg">
     <img
-      src="https://raw.githubusercontent.com/AI-in-Cardiovascular-Medicine/AIVUS-CAA/main/media/logo.png"
+      src="https://raw.githubusercontent.com/yungselm/AIVUS-OCT/main/media/logo.png"
       alt="aivus-caa logo"
     >
   </a>

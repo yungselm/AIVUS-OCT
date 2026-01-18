@@ -33,9 +33,13 @@ def read_image(main_window):
         try:  # DICOM
             main_window.dicom = dcm.read_file(file_name, force=True)
             main_window.images = main_window.dicom.pixel_array
-            if main_window.images.ndim == 4:  # 3 channel input
-                main_window.images = main_window.images[:, :, :, 0]
             parse_dicom(main_window)
+            if main_window.images.ndim == 4:  # 3 channel input
+                if main_window.metadata['modality'] == 'OCT':
+                    main_window.images_display = 1 # add only a flag value for RAM efficiency
+                    main_window.images = convert_oct_to_gray(main_window.images)
+                else:
+                    main_window.images = main_window.images[:, :, :, 0]
         except AttributeError:
             try:  # NIfTi
                 img = sitk.ReadImage(file_name)
@@ -99,3 +103,17 @@ def read_image(main_window):
         main_window.image_displayed = True
         main_window.display_slider.setValue(main_window.metadata['num_frames'] - 1)
     main_window.status_bar.showMessage(main_window.waiting_status)
+
+
+def convert_oct_to_gray(oct_array):
+    """
+    Converts an RGB OCT array (Frames, H, W, 3) to Grayscale (Frames, H, W).
+    """
+    # Define the luminosity weights
+    weights = np.array([0.299, 0.587, 0.114])
+    
+    # Use dot product to apply weights to the last dimension (the 3 color channels)
+    # This effectively does: (R * 0.299) + (G * 0.587) + (B * 0.114)
+    gray_oct = np.dot(oct_array[..., :3], weights)
+    
+    return gray_oct.astype(np.uint8)

@@ -1,3 +1,5 @@
+import cv2
+
 import numpy as np
 from loguru import logger
 from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QGraphicsLineItem
@@ -24,25 +26,49 @@ class LongitudinalView(QGraphicsView):
         self.setScene(self.graphics_scene)
 
     def set_data(self, images, contours):
-        self.graphics_scene.clear()
-        self.num_frames = images.shape[0]
-        self.points_on_marker = [None] * self.num_frames
-        self.image_height = images.shape[1]
+            self.graphics_scene.clear()
+            self.num_frames = images.shape[0]
+            self.image_height = images.shape[1]
+            self.points_on_marker = [None] * self.num_frames
 
-        slice_data = images[:, :, self.image_height // 2]
-        slice_data = np.transpose(slice_data, (1, 0)).copy()  # need .copy() to avoid QImage TypeError
-        longitudinal_image = QImage(
+            if hasattr(self.main_window, 'images_display') and self.main_window.images_display is not None:
+                # RGB Path: Extract center slice from (Frames, H, W, 3)
+                slice_data = self.main_window.dicom.pixel_array[:, :, self.image_height // 2, :]
+                slice_data = np.transpose(slice_data, (1, 0, 2)).copy()
+                q_format = QImage.Format.Format_RGB888
+                bytes_per_line = self.num_frames * 3
+            else:
+                # Grayscale Path: Extract center slice from (Frames, H, W)
+                slice_data = images[:, :, self.image_height // 2]
+                slice_data = np.transpose(slice_data, (1, 0)).copy()
+                q_format = QImage.Format.Format_Grayscale8
+                bytes_per_line = self.num_frames
+
+            if self.main_window.colormap_enabled:
+                # If data is RGB, convert to Gray for OpenCV's applyColorMap
+                if len(slice_data.shape) == 3:
+                    gray_temp = cv2.cvtColor(slice_data, cv2.COLOR_RGB2GRAY)
+                    slice_data = cv2.applyColorMap(gray_temp, cv2.COLORMAP_COOL)
+                else:
+                    slice_data = cv2.applyColorMap(slice_data, cv2.COLORMAP_COOL)
+                
+                slice_data = cv2.cvtColor(slice_data, cv2.COLOR_BGR2RGB)
+                q_format = QImage.Format.Format_RGB888
+                bytes_per_line = self.num_frames * 3
+
+            longitudinal_image = QImage(
                 slice_data.data, 
                 self.num_frames, 
                 self.image_height, 
-                self.num_frames, 
-                QImage.Format.Format_Grayscale8
-        )
-        image = QGraphicsPixmapItem(QPixmap.fromImage(longitudinal_image))
-        self.graphics_scene.addItem(image)
+                bytes_per_line, 
+                q_format
+            )
+            
+            image = QGraphicsPixmapItem(QPixmap.fromImage(longitudinal_image))
+            self.graphics_scene.addItem(image)
 
-        for frame, contour in enumerate(contours):
-            self.lview_contour(frame, contour)
+            for frame, contour in enumerate(contours):
+                self.lview_contour(frame, contour)
 
     def update_marker(self, frame):
         [self.graphics_scene.removeItem(item) for item in self.graphics_scene.items() if isinstance(item, Marker)]

@@ -254,32 +254,61 @@ class IVUSDisplay(QGraphicsView):
             self.active_point = None
             self.active_point_index = None
 
-            lower_bound = self.window_level - self.window_width / 2
-            upper_bound = self.window_level + self.window_width / 2
-
-            normalised_data = np.clip(self.images[self.frame, :, :], lower_bound, upper_bound)
-            normalised_data = ((normalised_data - lower_bound) / (upper_bound - lower_bound) * 255).astype(np.uint8)
-            height, width = normalised_data.shape
-
-            if self.main_window.filter == 0:
-                normalised_data = cv2.medianBlur(normalised_data, 5)
-            elif self.main_window.filter == 1:
-                normalised_data = cv2.GaussianBlur(normalised_data, (5, 5), 0)
-            elif self.main_window.filter == 2:
-                normalised_data = cv2.bilateralFilter(normalised_data, 9, 75, 75)
-
-            if self.main_window.colormap_enabled:
-                colormap = cv2.applyColorMap(normalised_data, cv2.COLORMAP_COOL)
-                q_image = QImage(colormap.data, width, height, width * 3, QImage.Format.Format_RGB888).scaled(
-                    self.image_size, self.image_size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
-                )
+            # --- PREPARE THE DATA FOR DISPLAY ---
+            if hasattr(self.main_window, 'images_display') and self.main_window.images_display is not None:
+                # OPTION A: Original OCT RGB Display
+                display_data = self.main_window.dicom.pixel_array[self.frame].copy()
+                height, width, channels = display_data.shape
+                bytes_per_line = channels * width
+                q_format = QImage.Format.Format_RGB888
             else:
-                q_image = QImage(normalised_data.data, width, height, width, QImage.Format.Format_Grayscale8).scaled(
-                    self.image_size, self.image_size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
-                )
+                # OPTION B: Grayscale IVUS with Window/Leveling
+                lower_bound = self.window_level - self.window_width / 2
+                upper_bound = self.window_level + self.window_width / 2
+                
+                norm_data = np.clip(self.images[self.frame, :, :], lower_bound, upper_bound)
+                display_data = ((norm_data - lower_bound) / (upper_bound - lower_bound) * 255).astype(np.uint8)
+                height, width = display_data.shape
+                bytes_per_line = width
+                q_format = QImage.Format.Format_Grayscale8
 
-            image = QGraphicsPixmapItem(QPixmap.fromImage(q_image))
-            self.graphics_scene.addItem(image)
+            # --- APPLY FILTERS ---
+            if self.main_window.filter == 0:
+                display_data = cv2.medianBlur(display_data, 5)
+            elif self.main_window.filter == 1:
+                display_data = cv2.GaussianBlur(display_data, (5, 5), 0)
+            elif self.main_window.filter == 2:
+                display_data = cv2.bilateralFilter(display_data, 9, 75, 75)
+
+            # --- APPLY OVERRIDE COLORMAP (If enabled by user) ---
+            if self.main_window.colormap_enabled:
+                # Note: Colormap requires grayscale input. If we have RGB, convert temporarily
+                if len(display_data.shape) == 3:
+                    gray_temp = cv2.cvtColor(display_data, cv2.COLOR_RGB2GRAY)
+                    display_data = cv2.applyColorMap(gray_temp, cv2.COLORMAP_COOL)
+                else:
+                    display_data = cv2.applyColorMap(display_data, cv2.COLORMAP_COOL)
+                
+                # OpenCV outputs BGR, Qt needs RGB
+                display_data = cv2.cvtColor(display_data, cv2.COLOR_BGR2RGB)
+                bytes_per_line = width * 3
+                q_format = QImage.Format.Format_RGB888
+
+            q_image = QImage(
+                display_data.data, 
+                width, 
+                height, 
+                bytes_per_line, 
+                q_format
+            ).scaled(
+                self.image_size, 
+                self.image_size, 
+                Qt.AspectRatioMode.IgnoreAspectRatio, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+
+            image_item = QGraphicsPixmapItem(QPixmap.fromImage(q_image))
+            self.graphics_scene.addItem(image_item)
 
             self.main_window.longitudinal_view.update_marker(self.frame)
             marker = Marker(
@@ -814,8 +843,8 @@ class IVUSDisplay(QGraphicsView):
                     self.active_point_index = self.current_contour.update(pos, self.active_point_index, path_index)
 
         elif event.buttons() == Qt.MouseButton.RightButton:
-            self.mouse_x = event.x()
-            self.mouse_y = event.y()
+            self.mouse_x = event.position().x()
+            self.mouse_y = event.position().y()
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton:
@@ -828,8 +857,8 @@ class IVUSDisplay(QGraphicsView):
         elif event.buttons() == Qt.MouseButton.RightButton:
             self.setMouseTracking(True)
             # Right-click drag for adjusting window level and window width
-            self.window_level += (event.x() - self.mouse_x) * self.windowing_sensitivity
-            self.window_width += (event.y() - self.mouse_y) * self.windowing_sensitivity
+            self.window_level += (event.position().x() - self.mouse_x) * self.windowing_sensitivity
+            self.window_width += (event.position().y() - self.mouse_y) * self.windowing_sensitivity
             self.display_image(update_image=True)
             self.setMouseTracking(False)
 

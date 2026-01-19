@@ -9,7 +9,7 @@
 
 
 
-# AIVUS-CAA (Automated IntraVascular UltraSound Image Processing and Quantification of Coronary Artery Anomalies) <!-- omit in toc -->
+# AIVUS-OCT (Automated IntraVascular UltraSound Image Processing and Quantification of Optical Coherence Tomography) <!-- omit in toc -->
 [![version](https://img.shields.io/badge/version-v1.1.1-yellow)](https://github.com/yungselm/AAOCASeg/releases/tag/v1.1.1)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Docs](https://img.shields.io/readthedocs/aivus-caa)](https://aivus-caa.readthedocs.io)

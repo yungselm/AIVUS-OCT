@@ -272,7 +272,6 @@ class IVUSDisplay(QGraphicsView):
                 bytes_per_line = width
                 q_format = QImage.Format.Format_Grayscale8
 
-            # --- APPLY FILTERS ---
             if self.main_window.filter == 0:
                 display_data = cv2.medianBlur(display_data, 5)
             elif self.main_window.filter == 1:
@@ -280,7 +279,7 @@ class IVUSDisplay(QGraphicsView):
             elif self.main_window.filter == 2:
                 display_data = cv2.bilateralFilter(display_data, 9, 75, 75)
 
-            # --- APPLY OVERRIDE COLORMAP (If enabled by user) ---
+            # apply override colormap
             if self.main_window.colormap_enabled:
                 # Note: Colormap requires grayscale input. If we have RGB, convert temporarily
                 if len(display_data.shape) == 3:
@@ -542,7 +541,7 @@ class IVUSDisplay(QGraphicsView):
         """
         Draw contour_data for the specified contour_type.
         - If set_current is True, this spline becomes self.current_contour (editing target).
-        - If contour_type == ContourType.LUMEN we also set self.lumen_contour for metrics.
+        - If contour_type == ContourType.LUMEN also set self.lumen_contour for metrics.
         """
         if not contour_data or not contour_data[0][self.frame]:
             return

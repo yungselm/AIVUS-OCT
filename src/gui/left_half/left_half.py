@@ -27,7 +27,6 @@ class LeftHalf:
         left_vbox = QVBoxLayout()
         main_window.display = IVUSDisplay(main_window)
         main_window.display_frame_comms = Communicate()
-        # Change 2: Optional - Depending on your slider.py, ensure the signal connection is valid
         main_window.display_frame_comms.updateBW[int].connect(main_window.display.set_frame)
         left_vbox.addWidget(main_window.display)
 
@@ -35,8 +34,6 @@ class LeftHalf:
         hide_checkboxes = QHBoxLayout()
         main_window.hide_contours_box = QCheckBox('&Hide Contours')
         main_window.hide_contours_box.setChecked(False)
-        # Change 3: stateChanged now passes a Qt.CheckState enum instead of a raw int in some contexts, 
-        # but [int] usually still works. If it fails, use .stateChanged.connect(...)
         main_window.hide_contours_box.stateChanged[int].connect(self.toggle_hide_contours)
         
         main_window.hide_special_points_box = QCheckBox('Hide farthest and closest points')
@@ -48,7 +45,6 @@ class LeftHalf:
         left_lower_grid.addLayout(hide_checkboxes, 0, 0)
 
         self.play_button = QPushButton()
-        # Change 4: QStyle enums are now scoped
         self.play_icon = main_window.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         self.pause_icon = main_window.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause)
         
@@ -57,7 +53,6 @@ class LeftHalf:
         self.play_button.clicked.connect(partial(self.play, main_window))
         self.paused = True
         
-        # Change 5: Scoped Enum for Orientation
         main_window.display_slider = Slider(main_window, Qt.Orientation.Horizontal)
         main_window.display_slider.valueChanged[int].connect(self.change_value)
         
@@ -67,7 +62,6 @@ class LeftHalf:
         left_lower_grid.addLayout(slider_hbox, 0, 1)
 
         self.frame_number_label = QLabel()
-        # Change 6: Scoped Enum for Alignment
         self.frame_number_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.frame_number_label.setText(f'Frame {main_window.display_slider.value() + 1}')
         

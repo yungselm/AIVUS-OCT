@@ -14,7 +14,7 @@ display:
   lview_display_stretch: 1
   windowing_sensitivity: 0.03  # 1 for default, below 1 for slower, above 1 for faster
   n_interactive_points: 10
-  n_points_contour: 500  # ideally choose a multiple of 100 (for calculation of closest points)
+  n_points_contour: 200  # ideally choose a multiple of 100 (for calculation of closest points)
   contour_thickness: 3
   point_thickness: 1
   point_radius: 10
@@ -22,7 +22,7 @@ display:
   color_eem: 'red'
   color_calcium: 'white'
   color_branch: 'green' # 20 predefined colors in PyQt5 (https://doc.qt.io/qt-6/qcolor.html)
-  alpha_contour: 128 # 0-255
+  alpha_contour: 100 # 0-255
 
 gating:
   normalize_step: 100

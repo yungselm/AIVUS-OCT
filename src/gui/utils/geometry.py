@@ -62,13 +62,21 @@ class Point(QGraphicsEllipseItem):
 class Spline(QGraphicsPathItem):
     """Class that describes a spline"""
 
-    def __init__(self, points, n_points, line_thickness=1, color=None, transparency=255):
+    def __init__(self, points, n_points, line_thickness=1, color=None, transparency=255, **kwargs):
         super().__init__()
         self.n_points = n_points
         self.knot_points = None
         self.full_contour = None
-        self.set_knot_points(points)
         self.setPen(get_qt_pen(color, line_thickness, transparency))
+        
+        # Geometric setup
+        self.start_coords = kwargs.get('start_coords', None)
+        self.end_coords = kwargs.get('end_coords', None)
+        
+        # Initialize path
+        self.path = QPainterPath()
+        self.set_knot_points(points)
+
 
     def set_knot_points(self, points):
         try:
@@ -87,9 +95,13 @@ class Spline(QGraphicsPathItem):
             
             self.knot_points = [x_coords, y_coords]
             
-            start_point = QPointF(x_coords[0], y_coords[0])
-            self.path = QPainterPath(start_point)
-            super(Spline, self).__init__(self.path)
+            # Clear the existing path
+            self.path = QPainterPath()
+            
+            # Start the path at the first point
+            if len(x_coords) > 0:
+                start_point = QPointF(x_coords[0], y_coords[0])
+                self.path.moveTo(start_point)
 
             self.full_contour = self.interpolate(self.knot_points)
             if self.full_contour[0] is not None:

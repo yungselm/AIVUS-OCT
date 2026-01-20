@@ -627,10 +627,13 @@ class IVUSDisplay(QGraphicsView):
             self.new_spline = Spline(
                 [xs, ys], self.n_points_contour, self.contour_thickness, cfg.color, cfg.alpha
             )
+            start_coords = (xs[0], ys[0])
+            self.new_spline.start_coords = start_coords
             self.contour_drawn = True
             self.graphics_scene.addItem(self.new_spline)
         elif self.new_spline:
             self.new_spline.set_knot_points([xs, ys])
+            self.new_spline.start_coords = (xs[0], ys[0])
 
     def _should_close_contour(self, current_pos) -> bool:
         """Returns True if user clicks near the start point after placing several points."""

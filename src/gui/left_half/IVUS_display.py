@@ -243,187 +243,170 @@ class IVUSDisplay(QGraphicsView):
         self.display_image(update_image=True, update_contours=True, update_phase=True)
 
     def display_image(self, update_image=False, update_contours=False, update_phase=False):
-        """Clears scene and displays current image and contours"""
         image_types = (QGraphicsPixmapItem, Marker)
+
         if update_image:
-            [
-                self.graphics_scene.removeItem(item)
-                for item in self.graphics_scene.items()
-                if isinstance(item, image_types)
-            ]
+            self._remove_image_items(image_types)
             self.active_point = None
             self.active_point_index = None
 
-            # --- PREPARE THE DATA FOR DISPLAY ---
-            if hasattr(self.main_window, 'images_display') and self.main_window.images_display is not None:
-                # OPTION A: Original OCT RGB Display
-                display_data = self.main_window.dicom.pixel_array[self.frame].copy()
-                height, width, channels = display_data.shape
-                bytes_per_line = channels * width
-                q_format = QImage.Format.Format_RGB888
-            else:
-                # OPTION B: Grayscale IVUS with Window/Leveling
-                lower_bound = self.window_level - self.window_width / 2
-                upper_bound = self.window_level + self.window_width / 2
-                
-                norm_data = np.clip(self.images[self.frame, :, :], lower_bound, upper_bound)
-                display_data = ((norm_data - lower_bound) / (upper_bound - lower_bound) * 255).astype(np.uint8)
-                height, width = display_data.shape
-                bytes_per_line = width
-                q_format = QImage.Format.Format_Grayscale8
+            display_data, h, w, bpl, qfmt = self._prepare_display_data()
+            display_data = self._apply_filter(display_data)
+            display_data, bpl, qfmt = self._apply_colormap_if_enabled(display_data, w)
 
-            if self.main_window.filter == 0:
-                display_data = cv2.medianBlur(display_data, 5)
-            elif self.main_window.filter == 1:
-                display_data = cv2.GaussianBlur(display_data, (5, 5), 0)
-            elif self.main_window.filter == 2:
-                display_data = cv2.bilateralFilter(display_data, 9, 75, 75)
-
-            # apply override colormap
-            if self.main_window.colormap_enabled:
-                # Note: Colormap requires grayscale input. If we have RGB, convert temporarily
-                if len(display_data.shape) == 3:
-                    gray_temp = cv2.cvtColor(display_data, cv2.COLOR_RGB2GRAY)
-                    display_data = cv2.applyColorMap(gray_temp, cv2.COLORMAP_COOL)
-                else:
-                    display_data = cv2.applyColorMap(display_data, cv2.COLORMAP_COOL)
-                
-                # OpenCV outputs BGR, Qt needs RGB
-                display_data = cv2.cvtColor(display_data, cv2.COLOR_BGR2RGB)
-                bytes_per_line = width * 3
-                q_format = QImage.Format.Format_RGB888
-
-            q_image = QImage(
-                display_data.data, 
-                width, 
-                height, 
-                bytes_per_line, 
-                q_format
-            ).scaled(
-                self.image_size, 
-                self.image_size, 
-                Qt.AspectRatioMode.IgnoreAspectRatio, 
-                Qt.TransformationMode.SmoothTransformation
+            q_image = QImage(display_data.data, w, h, bpl, qfmt).scaled(
+                self.image_size, self.image_size,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
+            self.graphics_scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(q_image)))
+            self._add_center_marker(int(h))
 
-            image_item = QGraphicsPixmapItem(QPixmap.fromImage(q_image))
-            self.graphics_scene.addItem(image_item)
+        old_overlays = [it for it in self.graphics_scene.items() if not isinstance(it, image_types)]
+        self._remove_non_image_items(image_types)
 
-            self.main_window.longitudinal_view.update_marker(self.frame)
-            marker = Marker(
-                int((self.image_width // 2) * self.scaling_factor),
-                0,
-                int((self.image_width // 2) * self.scaling_factor),
-                int(height * self.scaling_factor),
-            )
-            self.graphics_scene.addItem(marker)
-
-            self.main_window.longitudinal_view.update_marker(self.frame)
-            marker = Marker(
-                (self.image_width // 2) * self.scaling_factor,
-                0,
-                (self.image_width // 2) * self.scaling_factor,
-                height * self.scaling_factor,
-            )
-            self.graphics_scene.addItem(marker)
-
-        old_contours = [item for item in self.graphics_scene.items() if not isinstance(item, image_types)]
-        [
-            self.graphics_scene.removeItem(item)
-            for item in self.graphics_scene.items()
-            if not isinstance(item, image_types)
-        ]  # clear previous scene
         if self.main_window.hide_contours:
             self.main_window.longitudinal_view.hide_lview_contours()
         else:
             if update_contours:
-                lumen_data = self.get_contour_data(ContourType.LUMEN)
-                if lumen_data and lumen_data[0][self.frame]:
-                    # draw lumen and set as lumen_contour, but only set current_contour if lumen is active
-                    self.draw_contour(
-                        lumen_data,
-                        contour_type=ContourType.LUMEN,
-                        set_current=(self.active_contour_type == ContourType.LUMEN),
-                    )
-                else:
-                    # no lumen contour for this frame
-                    self.lumen_contour = None
-                    if self.active_contour_type == ContourType.LUMEN:
-                        self.current_contour = None
-                        self.contour_points = []
-
-                for ct in ContourType:
-                    if ct == ContourType.LUMEN:
-                        continue
-                    contour_data = self.get_contour_data(ct)
-                    if contour_data and contour_data[0][self.frame]:
-                        self.draw_contour(contour_data, contour_type=ct, set_current=(ct == self.active_contour_type))
-
+                self._draw_contours()
                 self.draw_measure()
                 self.draw_reference()
-
-                # Compute metrics ALWAYS from lumen_contour (defensive)
-                if self.lumen_contour is not None and self.lumen_contour.full_contour[0] is not None:
-                    lumen_x, lumen_y = self.lumen_contour.get_unscaled_contour(self.scaling_factor)
-                    polygon = Polygon([(x, y) for x, y in zip(lumen_x, lumen_y)])
-                    lumen_area, lumen_circumf, _, _ = compute_polygon_metrics(self.main_window, polygon, self.frame)
-                    longest_distance, farthest_point_x, farthest_point_y = farthest_points(
-                        self.main_window, polygon.exterior.coords, self.frame
-                    )
-                    shortest_distance, closest_point_x, closest_point_y = closest_points(
-                        self.main_window, polygon, self.frame
-                    )
-                    eem_area, percent_text = self.compute_eem_and_percent_stenosis(self.frame, lumen_area)
-
-                    if not self.main_window.hide_special_points:
-                        self.graphics_scene.addLine(
-                            QLineF(
-                                farthest_point_x[0] * self.scaling_factor,
-                                farthest_point_y[0] * self.scaling_factor,
-                                farthest_point_x[1] * self.scaling_factor,
-                                farthest_point_y[1] * self.scaling_factor,
-                            ),
-                            QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
-                        )
-                        self.graphics_scene.addLine(
-                            QLineF(
-                                closest_point_x[0] * self.scaling_factor,
-                                closest_point_y[0] * self.scaling_factor,
-                                closest_point_x[1] * self.scaling_factor,
-                                closest_point_y[1] * self.scaling_factor,
-                            ),
-                            QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
-                        )
-
-                    elliptic_ratio = (longest_distance / shortest_distance) if shortest_distance != 0 else 0
-                    self.build_frame_metrics_text(lumen_area, lumen_circumf, elliptic_ratio, longest_distance, shortest_distance, eem_area, percent_text, update_phase)
-
-            else:  # re-draw old elements to put them in foreground
-                [self.graphics_scene.addItem(item) for item in old_contours]
+                self._maybe_compute_metrics()
+            else:
+                for it in old_overlays:
+                    self.graphics_scene.addItem(it)
 
         if update_phase:
-            if self.main_window.data['phases'][self.frame] == 'D':
-                phase = 'Diastole'
-                color = QColor(
-                    self.main_window.diastole_color[0],
-                    self.main_window.diastole_color[1],
-                    self.main_window.diastole_color[2],
-                )
-            elif self.main_window.data['phases'][self.frame] == 'S':
-                phase = 'Systole'
-                color = QColor(
-                    self.main_window.systole_color[0],
-                    self.main_window.systole_color[1],
-                    self.main_window.systole_color[2],
-                )
-            else:
-                phase = ''
-                color = Qt.GlobalColor.white
-            self.phase_text = QGraphicsTextItem(phase)
-            self.phase_text.setDefaultTextColor(color)
-            self.phase_text.setX(self.image_size - self.image_size / 3.75)
-            self.phase_text.setFont(QFont('Helvetica', int(self.image_size / 50), QFont.Weight.Bold))
-            self.graphics_scene.addItem(self.phase_text)
+            self._update_phase_text()
+
+    def _remove_image_items(self, image_types):
+        for it in list(self.graphics_scene.items()):
+            if isinstance(it, image_types):
+                self.graphics_scene.removeItem(it)
+
+    def _prepare_display_data(self):
+        if hasattr(self.main_window, "images_display") and self.main_window.images_display is not None:
+            img = self.main_window.dicom.pixel_array[self.frame].copy()
+            h, w, ch = img.shape
+            return img, h, w, ch * w, QImage.Format.Format_RGB888
+
+        lo = self.window_level - self.window_width / 2
+        hi = self.window_level + self.window_width / 2
+        norm = np.clip(self.images[self.frame, :, :], lo, hi)
+        g = ((norm - lo) / (hi - lo) * 255).astype(np.uint8)
+        h, w = g.shape
+        return g, h, w, w, QImage.Format.Format_Grayscale8
+
+    def _apply_filter(self, img):
+        f = getattr(self.main_window, "filter", None)
+        if f == 0:
+            return cv2.medianBlur(img, 5)
+        if f == 1:
+            return cv2.GaussianBlur(img, (5, 5), 0)
+        if f == 2:
+            return cv2.bilateralFilter(img, 9, 75, 75)
+        return img
+
+    def _apply_colormap_if_enabled(self, img, width):
+        if not getattr(self.main_window, "colormap_enabled", False):
+            # return unchanged + appropriate bpl/qfmt inferred by caller
+            if img.ndim == 2:
+                return img, width, QImage.Format.Format_Grayscale8
+            return img, img.shape[2] * width, QImage.Format.Format_RGB888
+
+        # colormap expects gray; handle RGB->gray then map; convert BGR->RGB for Qt
+        if img.ndim == 3 and img.shape[2] == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            cmap = cv2.applyColorMap(gray, cv2.COLORMAP_COOL)
+        else:
+            cmap = cv2.applyColorMap(img, cv2.COLORMAP_COOL)
+        rgb = cv2.cvtColor(cmap, cv2.COLOR_BGR2RGB)
+        return rgb, width * 3, QImage.Format.Format_RGB888
+
+    def _add_center_marker(self, height):
+        cx = int((self.image_width // 2) * self.scaling_factor)
+        m = Marker(cx, 0, cx, int(height * self.scaling_factor))
+        self.graphics_scene.addItem(m)
+        if hasattr(self.main_window, "longitudinal_view"):
+            self.main_window.longitudinal_view.update_marker(self.frame)
+
+    def _remove_non_image_items(self, image_types):
+        for it in list(self.graphics_scene.items()):
+            if not isinstance(it, image_types):
+                self.graphics_scene.removeItem(it)
+
+    def _draw_contours(self):
+        # lumen
+        lumen = self.get_contour_data(ContourType.LUMEN)
+        if lumen and lumen[0][self.frame]:
+            self.draw_contour(lumen, contour_type=ContourType.LUMEN,
+                            set_current=(self.active_contour_type == ContourType.LUMEN))
+        else:
+            self.lumen_contour = None
+            if self.active_contour_type == ContourType.LUMEN:
+                self.current_contour = None
+                self.contour_points = []
+
+        # other contours
+        for ct in ContourType:
+            if ct == ContourType.LUMEN:
+                continue
+            data = self.get_contour_data(ct)
+            if data and data[0][self.frame]:
+                self.draw_contour(data, contour_type=ct, set_current=(ct == self.active_contour_type))
+
+    def _maybe_compute_metrics(self):
+        lc = getattr(self, "lumen_contour", None)
+        if not lc or getattr(lc, "full_contour", None) is None or lc.full_contour[0] is None:
+            return
+
+        x, y = lc.get_unscaled_contour(self.scaling_factor)
+        poly = Polygon(list(zip(x, y)))
+        lumen_area, lumen_circumf, _, _ = compute_polygon_metrics(self.main_window, poly, self.frame)
+        longest_d, far_x, far_y = farthest_points(self.main_window, poly.exterior.coords, self.frame)
+        shortest_d, close_x, close_y = closest_points(self.main_window, poly, self.frame)
+        eem_area, pct = self.compute_eem_and_percent_stenosis(self.frame, lumen_area)
+
+        if not self.main_window.hide_special_points:
+            self.graphics_scene.addLine(
+                QLineF(far_x[0] * self.scaling_factor, far_y[0] * self.scaling_factor,
+                    far_x[1] * self.scaling_factor, far_y[1] * self.scaling_factor),
+                QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
+            )
+            self.graphics_scene.addLine(
+                QLineF(close_x[0] * self.scaling_factor, close_y[0] * self.scaling_factor,
+                    close_x[1] * self.scaling_factor, close_y[1] * self.scaling_factor),
+                QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
+            )
+
+        ell = (longest_d / shortest_d) if shortest_d else 0
+        self.build_frame_metrics_text(lumen_area, lumen_circumf, ell, longest_d, shortest_d, eem_area, pct, update_phase=False)
+
+    def _update_phase_text(self):
+        code = self.main_window.data["phases"][self.frame]
+        if code == "D":
+            text = "Diastole"
+            color = QColor(*self.main_window.diastole_color)
+        elif code == "S":
+            text = "Systole"
+            color = QColor(*self.main_window.systole_color)
+        else:
+            text = ""
+            color = Qt.GlobalColor.white
+
+        # replace previous phase_text if present
+        if getattr(self, "phase_text", None):
+            try:
+                self.graphics_scene.removeItem(self.phase_text)
+            except Exception:
+                pass
+
+        self.phase_text = QGraphicsTextItem(text)
+        self.phase_text.setDefaultTextColor(color)
+        self.phase_text.setX(self.image_size - self.image_size / 3.75)
+        self.phase_text.setFont(QFont("Helvetica", int(self.image_size / 50), QFont.Weight.Bold))
+        self.graphics_scene.addItem(self.phase_text)
 
     def compute_eem_and_percent_stenosis(self, frame: int, lumen_area: float):
         """
@@ -604,55 +587,59 @@ class IVUSDisplay(QGraphicsView):
 
         self.stop_contour()
 
-    def add_contour(self, point):
-        """Creates an interactive contour manually point by point"""
-        if self.points_to_draw:
-            start_point = self.points_to_draw[0].get_coords()
-        else:
-            self.contour_drawn = False
-            start_point = (point.x(), point.y())
+    def add_contour(self, click_pos):
+        """Handles logic for adding a new point to a manual contour being drawn."""
+        # 1. Validation: Handle cases where the drawing state is corrupted
+        if not self._is_drawing_valid():
+            self._reset_contour_drawing()
+            return
 
-        if start_point[0] is None:  # occurs when Point has been deleted during draw (e.g. by RMB click)
-            self.points_to_draw = []
-            self.contour_mode = False
-            self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
-            self.display_image(update_contours=True)
-        else:
-            # Add the new point
-            new_point = Point((point.x(), point.y()), self.point_thickness, self.point_radius)
-            self.points_to_draw.append(new_point)
-            self.graphics_scene.addItem(self.points_to_draw[-1])
+        # 2. Point Placement: Create and store the new knot point
+        new_point = self._create_knot_point(click_pos)
+        self.points_to_draw.append(new_point)
+        self.graphics_scene.addItem(new_point)
 
-            # Start drawing spline after we have at least 3 points
-            if len(self.points_to_draw) > 2:  # Changed from 3 to 2 for better visual feedback
-                if not self.contour_drawn:
-                    # Extract coordinates from Point objects
-                    x_coords = [p.get_coords()[0] for p in self.points_to_draw]
-                    y_coords = [p.get_coords()[1] for p in self.points_to_draw]
-                    
-                    # Create the spline
-                    self.new_spline = Spline(
-                        [x_coords, y_coords],
-                        self.n_points_contour,
-                        self.contour_thickness,
-                        self.contour_configs[self.active_contour_type].color,
-                        self.contour_configs[self.active_contour_type].alpha
-                    )
-                    self.contour_drawn = True
-                else:
-                    # Update existing spline
-                    x_coords = [p.get_coords()[0] for p in self.points_to_draw]
-                    y_coords = [p.get_coords()[1] for p in self.points_to_draw]
-                    
-                    if self.new_spline is not None:
-                        self.new_spline.set_knot_points([x_coords, y_coords])
+        # 3. Spline Management: Draw or update the smooth curve
+        if len(self.points_to_draw) >= 3:
+            self._update_or_create_spline()
 
-            # Check if we should close the contour
-            if len(self.points_to_draw) > 3:
-                dist = math.sqrt((point.x() - start_point[0]) ** 2 + (point.y() - start_point[1]) ** 2)
-                if dist < 20:  # Close if close to start point
-                    self._close_current_contour()
-                    return
+        # 4. Closure Check: See if the user clicked near the start to finish the shape
+        if self._should_close_contour(click_pos):
+            self._close_current_contour()
+
+    def _is_drawing_valid(self) -> bool:
+        """Checks if the first point is valid; returns False if drawing was interrupted."""
+        if not self.points_to_draw:
+            return True
+        return self.points_to_draw[0].get_coords()[0] is not None
+
+    def _create_knot_point(self, pos) -> Point:
+        """Helper to instantiate a Point with current config."""
+        return Point((pos.x(), pos.y()), self.point_thickness, self.point_radius)
+
+    def _update_or_create_spline(self):
+        """Logic to draw the curve between knot points."""
+        xs = [p.get_coords()[0] for p in self.points_to_draw]
+        ys = [p.get_coords()[1] for p in self.points_to_draw]
+
+        if not self.contour_drawn:
+            cfg = self.contour_configs[self.active_contour_type]
+            self.new_spline = Spline(
+                [xs, ys], self.n_points_contour, self.contour_thickness, cfg.color, cfg.alpha
+            )
+            self.contour_drawn = True
+            self.graphics_scene.addItem(self.new_spline)
+        elif self.new_spline:
+            self.new_spline.set_knot_points([xs, ys])
+
+    def _should_close_contour(self, current_pos) -> bool:
+        """Returns True if user clicks near the start point after placing several points."""
+        if len(self.points_to_draw) <= 3:
+            return False
+            
+        start_x, start_y = self.points_to_draw[0].get_coords()
+        dist = math.hypot(current_pos.x() - start_x, current_pos.y() - start_y)
+        return dist < 20  # Snap distance in pixels
 
     def start_contour(self, contour_type: ContourType = None):
         """
@@ -788,87 +775,97 @@ class IVUSDisplay(QGraphicsView):
             self.stop_measure(self.measure_index)
 
     def mousePressEvent(self, event):
-        if event.buttons() == Qt.MouseButton.LeftButton:
-            pos = self.mapToScene(event.pos())
+        pos = self.mapToScene(event.position().toPoint())
+        
+        if event.button() == Qt.MouseButton.LeftButton:
             if self.contour_mode:
                 self.add_contour(pos)
             elif self.measure_index is not None:
                 self.add_measure(pos)
             elif self.reference_mode:
-                pos = self.mapToScene(event.pos())
-                original_x = pos.x() / self.scaling_factor
-                original_y = pos.y() / self.scaling_factor
-                self.main_window.data['reference'][self.frame] = [original_x, original_y]
-                self.reference_mode = False
-                self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
-                self.display_image(update_contours=True)
+                self._handle_reference_placement(pos)
             else:
-                # attempt to switch active contour based on nearest knotpoint across all contour types (new feature)
-                try:
-                    min_dist = float('inf')
-                    nearest_ct = None
-                    nearest_idx = None
-                    nearest_coord = None
-                    threshold_px = 20  # pixels; click must be within this to trigger switch (tested value)
+                # First, try to switch active contour if user clicked near another one
+                self._attempt_contour_switch(pos)
+                # Then, handle interaction with points or the spline path
+                self._handle_item_interaction(pos, event.pos())
 
-                    for ct in ContourType:
-                        contour_data = self.get_contour_data(ct)
-                        if not contour_data:
-                            continue
-                        # defensive: ensure per-frame lists exist
-                        try:
-                            xs = contour_data[0][self.frame]
-                            ys = contour_data[1][self.frame]
-                        except Exception:
-                            continue
-                        if not xs:
-                            continue
-
-                        # compare scaled coordinates to click
-                        for idx, (x_orig, y_orig) in enumerate(zip(xs, ys)):
-                            x = x_orig * self.scaling_factor
-                            y = y_orig * self.scaling_factor
-                            dist = math.hypot(pos.x() - x, pos.y() - y)
-                            if dist < min_dist:
-                                min_dist = dist
-                                nearest_ct = ct
-                                nearest_idx = idx
-                                nearest_coord = (x, y)
-
-                    if nearest_ct is not None and min_dist < threshold_px and nearest_ct != self.active_contour_type:
-                        self.set_active_contour_type(nearest_ct)
-                        self.display_image(update_contours=True)
-                except Exception:
-                    logger.exception("Error while attempting to switch active contour on click")
-
-                items = self.items(event.pos())
-                point = [item for item in items if isinstance(item, Point)]
-                spline = [item for item in items if isinstance(item, Spline)]
-                if point and point[0] in self.contour_points:
-                    self.main_window.setCursor(Qt.CursorShape.BlankCursor)  # remove cursor for precise contour changes
-                    # Convert mouse position to item position
-                    # https://stackoverflow.com/questions/53627056/how-to-get-cursor-click-position-in-qgraphicsitem-coordinate-system
-                    self.active_point_index = self.contour_points.index(point[0])
-                    point[0].update_color()
-                    self.active_point = point[0]
-                elif spline:  # clicked on contour
-                    path_index = self.current_contour.on_path(pos)
-                    self.main_window.setCursor(Qt.CursorShape.BlankCursor)
-                    cfg = self.contour_configs.get(self.active_contour_type)
-                    self.active_point = Point(
-                        (pos.x(), pos.y()),
-                        self.point_thickness,
-                        self.point_radius,
-                        cfg.color if cfg else self.color_contour,
-                        cfg.alpha if cfg else self.alpha_contour,
-                    )
-                    self.graphics_scene.addItem(self.active_point)
-                    self.active_point.update_color()
-                    self.active_point_index = self.current_contour.update(pos, self.active_point_index, path_index)
-
-        elif event.buttons() == Qt.MouseButton.RightButton:
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Store for windowing/leveling or context menus
             self.mouse_x = event.position().x()
             self.mouse_y = event.position().y()
+
+        super().mousePressEvent(event)
+
+    def _handle_reference_placement(self, pos):
+        """Saves the reference point and exits reference mode."""
+        original_x = pos.x() / self.scaling_factor
+        original_y = pos.y() / self.scaling_factor
+        self.main_window.data['reference'][self.frame] = [original_x, original_y]
+        
+        self.reference_mode = False
+        self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
+        self.display_image(update_contours=True)
+
+    def _attempt_contour_switch(self, pos):
+        """Switches active contour type if clicking near a different contour's knotpoint."""
+        threshold_px = 20 
+        min_dist = float('inf')
+        nearest_ct = None
+
+        for ct in ContourType:
+            contour_data = self.get_contour_data(ct)
+            if not contour_data or not contour_data[0][self.frame]:
+                continue
+
+            xs, ys = contour_data[0][self.frame], contour_data[1][self.frame]
+            for x_orig, y_orig in zip(xs, ys):
+                dist = math.hypot(pos.x() - (x_orig * self.scaling_factor), 
+                                pos.y() - (y_orig * self.scaling_factor))
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_ct = ct
+
+        if nearest_ct and min_dist < threshold_px and nearest_ct != self.active_contour_type:
+            self.set_active_contour_type(nearest_ct)
+            self.display_image(update_contours=True)
+
+    def _handle_item_interaction(self, scene_pos, view_pos):
+        """Handles clicking existing knotpoints or adding new ones to a spline."""
+        items = self.items(view_pos)
+        point_item = next((i for i in items if isinstance(i, Point)), None)
+        spline_item = next((i for i in items if isinstance(i, Spline)), None)
+
+        if point_item and point_item in self.contour_points:
+            self._select_existing_point(point_item)
+        elif spline_item:
+            self._add_new_point_to_spline(scene_pos)
+
+    def _select_existing_point(self, point_item):
+        self.main_window.setCursor(Qt.CursorShape.BlankCursor) # remove cursor for precise contour changes
+        # https://stackoverflow.com/questions/53627056/how-to-get-cursor-click-position-in-qgraphicsitem-coordinate-system
+        self.active_point_index = self.contour_points.index(point_item)
+        point_item.update_color()
+        self.active_point = point_item
+
+    def _add_new_point_to_spline(self, pos):
+        if not self.current_contour:
+            return
+
+        path_index = self.current_contour.on_path(pos)
+        self.main_window.setCursor(Qt.CursorShape.BlankCursor)
+        
+        cfg = self.contour_configs.get(self.active_contour_type)
+        self.active_point = Point(
+            (pos.x(), pos.y()),
+            self.point_thickness,
+            self.point_radius,
+            cfg.color if cfg else self.color_contour,
+            cfg.alpha if cfg else self.alpha_contour,
+        )
+        self.graphics_scene.addItem(self.active_point)
+        self.active_point.update_color()
+        self.active_point_index = self.current_contour.update(pos, self.active_point_index, path_index)
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton:

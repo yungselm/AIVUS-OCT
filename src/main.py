@@ -13,7 +13,7 @@ def main(config: DictConfig) -> None:
     app = QApplication(sys.argv)
     app.setApplicationVersion(__version__)
     
-    qdarktheme.setup_theme('dark')
+    qdarktheme.setup_theme('dark') # switch to auto to recognize system mode
     Master(config)
     
     sys.exit(app.exec())

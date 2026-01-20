@@ -17,7 +17,6 @@ class LongitudinalView(QGraphicsView):
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window
-        self.image_size = main_window.config.display.image_size
         self.lview_contour_size = 2
         self.graphics_scene = QGraphicsScene()
 

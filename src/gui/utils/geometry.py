@@ -19,15 +19,26 @@ class Point(QGraphicsEllipseItem):
         self.default_color = get_qt_pen(color, line_thickness, transparency)
 
         self.setPen(self.default_color)
+        # Store center position
+        self.center_x, self.center_y = pos[0], pos[1]
         self.setRect(
-            pos[0] - self.point_radius * 0.5, pos[1] - self.point_radius * 0.5, self.point_radius, self.point_radius
+            pos[0] - self.point_radius * 0.5, 
+            pos[1] - self.point_radius * 0.5, 
+            self.point_radius, 
+            self.point_radius
         )
 
     def get_coords(self):
         try:
-            return self.rect().x(), self.rect().y()
+            # Return the center coordinates
+            rect = self.rect()
+            return rect.x() + rect.width()/2, rect.y() + rect.height()/2
         except RuntimeError:  # Point has been deleted
             return None, None
+        
+    def get_center(self):
+        """Return the exact center of the point"""
+        return self.center_x, self.center_y
 
     def update_color(self):
         self.setPen(QPen(Qt.GlobalColor.transparent, self.line_thickness))
@@ -37,7 +48,14 @@ class Point(QGraphicsEllipseItem):
 
     def update_pos(self, pos):
         """Updates the Point position"""
-        self.setRect(pos.x(), pos.y(), self.point_radius, self.point_radius)
+        # Update center coordinates
+        self.center_x, self.center_y = pos.x(), pos.y()
+        self.setRect(
+            pos.x() - self.point_radius * 0.5, 
+            pos.y() - self.point_radius * 0.5, 
+            self.point_radius, 
+            self.point_radius
+        )
         return self.rect()
 
 
@@ -46,7 +64,7 @@ class Spline(QGraphicsPathItem):
 
     def __init__(self, points, n_points, line_thickness=1, color=None, transparency=255):
         super().__init__()
-        self.n_points = n_points + 1
+        self.n_points = n_points
         self.knot_points = None
         self.full_contour = None
         self.set_knot_points(points)
@@ -54,57 +72,81 @@ class Spline(QGraphicsPathItem):
 
     def set_knot_points(self, points):
         try:
-            start_point = QPointF(points[0][0], points[1][0])
+            # Ensure points are in the correct format
+            if isinstance(points, list) and len(points) == 2:
+                x_coords, y_coords = points
+            else:
+                logger.error(f"Invalid points format: {points}")
+                return
+            
+            # For a closed periodic spline, duplicate the first point at the end
+            if len(x_coords) > 0:
+                if x_coords[0] != x_coords[-1] or y_coords[0] != y_coords[-1]:
+                    x_coords.append(x_coords[0])
+                    y_coords.append(y_coords[0])
+            
+            self.knot_points = [x_coords, y_coords]
+            
+            start_point = QPointF(x_coords[0], y_coords[0])
             self.path = QPainterPath(start_point)
-            # Python 3 / PyQt6 super() call
             super(Spline, self).__init__(self.path)
 
-            self.full_contour = self.interpolate(points)
+            self.full_contour = self.interpolate(self.knot_points)
             if self.full_contour[0] is not None:
-                for i in range(0, len(self.full_contour[0])):
+                # Draw the interpolated spline
+                for i in range(1, len(self.full_contour[0])):
                     self.path.lineTo(self.full_contour[0][i], self.full_contour[1][i])
 
                 self.setPath(self.path)
                 self.path.closeSubpath()
-                self.knot_points = points
-        except IndexError:  # no points for this frame
-            logger.error(points)
-            pass
+        except Exception as e:
+            logger.error(f"Error setting knot points: {e}")
+            self.knot_points = None
+            self.full_contour = (None, None)
 
     def interpolate(self, points):
         """Interpolates the spline points using B-splines"""
-        points = np.array(points)
         try:
-            # per=1 for periodic (closed) splines
-            tck, u = splprep(points, u=None, s=0.0, per=1)
-        except ValueError:
-            return (None, None)
-        u_new = np.linspace(u.min(), u.max(), self.n_points)
-        x_new, y_new = splev(u_new, tck, der=0)
-
-        return (x_new, y_new)
+            points_array = np.array(points)
+            
+            # Check if we have enough points for interpolation
+            if points_array.shape[1] < 4:  # Need at least 4 points for periodic spline
+                logger.warning(f"Not enough points for spline interpolation: {points_array.shape[1]}")
+                return (np.array(points[0]), np.array(points[1]))
+            
+            # Use smoothing parameter s=0 for exact interpolation through points
+            # Use per=1 for periodic (closed) splines
+            tck, u = splprep(points_array, u=None, s=0.0, per=1)
+            
+            # Generate interpolated points
+            u_new = np.linspace(u.min(), u.max(), self.n_points)
+            x_new, y_new = splev(u_new, tck, der=0)
+            
+            return (x_new, y_new)
+        except Exception as e:
+            logger.error(f"Error in spline interpolation: {e}")
+            return (np.array(points[0]), np.array(points[1]))
 
     def update(self, pos, index, path_index=None):
-        """Updates the stored spline everytime it is moved
-        Args:
-            pos: new points coordinates
-            index: knot point index
-            path_index: index of point on path
-        """
+        """Updates the stored spline everytime it is moved"""
+        if self.knot_points is None:
+            return index
+        
         if path_index is not None:
+            # Find the closest knot point to the clicked path position
             path_indices = np.zeros(len(self.knot_points[0]))
-            distances = np.zeros(self.n_points)
             for i in range(len(self.knot_points[0])):
                 knot_x, knot_y = self.knot_points[0][i], self.knot_points[1][i]
-                for j in range(self.n_points):
-                    distances[j] = np.sqrt(
-                        (knot_x - self.full_contour[0][j]) ** 2 + (knot_y - self.full_contour[1][j]) ** 2
-                    )
-                path_indices[i] = np.argmin(distances)  # index of closest point on path
-            path_indices[0] = 0  # first and last points are the same but need sorted list for bisect
-            index = bisect.bisect_left(path_indices, path_index)
-            self.knot_points[0].insert(index, pos.x())
-            self.knot_points[1].insert(index, pos.y())
+                distances = np.sqrt(
+                    (knot_x - self.full_contour[0]) ** 2 + (knot_y - self.full_contour[1]) ** 2
+                )
+                path_indices[i] = np.argmin(distances)
+            
+            # Find where to insert the new point
+            insert_idx = bisect.bisect_left(path_indices, path_index)
+            self.knot_points[0].insert(insert_idx, pos.x())
+            self.knot_points[1].insert(insert_idx, pos.y())
+            index = insert_idx
         else:
             if index >= len(self.knot_points[0]):
                 self.knot_points[0].append(pos.x())
@@ -112,31 +154,65 @@ class Spline(QGraphicsPathItem):
             else:
                 self.knot_points[0][index] = pos.x()
                 self.knot_points[1][index] = pos.y()
+        
+        # Ensure the spline remains closed
+        if self.knot_points[0][0] != self.knot_points[0][-1] or self.knot_points[1][0] != self.knot_points[1][-1]:
+            self.knot_points[0][-1] = self.knot_points[0][0]
+            self.knot_points[1][-1] = self.knot_points[1][0]
+        
+        # Re-interpolate
         self.full_contour = self.interpolate(self.knot_points)
-        for i in range(0, len(self.full_contour[0])):
-            self.path.setElementPositionAt(i, self.full_contour[0][i], self.full_contour[1][i])
+        
+        # Rebuild the path
+        self.path = QPainterPath(QPointF(self.full_contour[0][0], self.full_contour[1][0]))
+        for i in range(1, len(self.full_contour[0])):
+            self.path.lineTo(self.full_contour[0][i], self.full_contour[1][i])
         self.setPath(self.path)
+        self.path.closeSubpath()
 
         return index
 
     def on_path(self, pos):
+        if self.full_contour[0] is None:
+            return None
+        
         x, y = pos.x(), pos.y()
         distances = np.sqrt((self.full_contour[0] - x) ** 2 + (self.full_contour[1] - y) ** 2)
-        if np.min(distances) < 10:
+        min_dist = np.min(distances)
+        
+        if min_dist < 10:  # 10 pixel threshold
             return np.argmin(distances)
         return None
 
     def get_unscaled_contour(self, scaling_factor):
+        if self.full_contour[0] is None:
+            return None, None
         return self.full_contour[0] / scaling_factor, self.full_contour[1] / scaling_factor
 
+
 def get_qt_pen(color, thickness, transparency=255):
-    # Change 3: GlobalColor namespace for getattr
-    try:
-        color_enum = getattr(Qt.GlobalColor, color)
-    except (AttributeError, TypeError):
-        color_enum = Qt.GlobalColor.blue
-
-    pen_color = QColor(color_enum)
+    """Create a QPen with the specified color, thickness, and transparency"""
+    if isinstance(color, str):
+        # Try to get color from Qt.GlobalColor
+        try:
+            color_enum = getattr(Qt.GlobalColor, color.lower())
+            pen_color = QColor(color_enum)
+        except AttributeError:
+            # Try to parse as hex color
+            if color.startswith('#'):
+                pen_color = QColor(color)
+            else:
+                # Default to blue
+                pen_color = QColor(Qt.GlobalColor.blue)
+    elif isinstance(color, (tuple, list)) and len(color) >= 3:
+        # RGB or RGBA tuple
+        if len(color) == 3:
+            pen_color = QColor(color[0], color[1], color[2])
+        else:
+            pen_color = QColor(color[0], color[1], color[2], color[3] if len(color) > 3 else 255)
+    else:
+        # Default to blue
+        pen_color = QColor(Qt.GlobalColor.blue)
+    
     pen_color.setAlpha(transparency)
-
     return QPen(pen_color, thickness)

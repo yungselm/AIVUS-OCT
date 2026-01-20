@@ -584,9 +584,28 @@ class IVUSDisplay(QGraphicsView):
         else:
             logger.warning(f'Spline for frame {self.frame + 1} could not be interpolated for {ct.value}')
 
+    def _close_current_contour(self):
+        """Close the current contour and save it."""
+        if self.new_spline is not None:
+            downsampled = downsample(
+                ([self.new_spline.full_contour[0].tolist()], [self.new_spline.full_contour[1].tolist()]),
+                self.n_interactive_points,
+            )
+
+            key = self.contour_key()
+            self._ensure_main_window_contour_structure(key)
+
+            self.main_window.data[key][0][self.frame] = [
+                point / self.scaling_factor for point in downsampled[0]
+            ]
+            self.main_window.data[key][1][self.frame] = [
+                point / self.scaling_factor for point in downsampled[1]
+            ]
+
+        self.stop_contour()
+
     def add_contour(self, point):
         """Creates an interactive contour manually point by point"""
-
         if self.points_to_draw:
             start_point = self.points_to_draw[0].get_coords()
         else:
@@ -599,49 +618,49 @@ class IVUSDisplay(QGraphicsView):
             self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
             self.display_image(update_contours=True)
         else:
-            if len(self.points_to_draw) > 3:  # start drawing spline after 3 points
-                if not self.contour_drawn:
-                    self.new_spline = Spline(
-                        [
-                            [point.get_coords()[0] for point in self.points_to_draw],
-                            [point.get_coords()[1] for point in self.points_to_draw],
-                        ],
-                        self.n_points_contour,
-                        self.contour_thickness,
-                    )
-                    self.graphics_scene.addItem(self.new_spline)
-                    self.contour_drawn = True
-                else:
-                    self.new_spline.update(point, len(self.points_to_draw))
-
-            if len(self.points_to_draw) > 1:
-                dist = math.sqrt((point.x() - start_point[0]) ** 2 + (point.y() - start_point[1]) ** 2)
-
-                if dist < 20: # check distance to start point, if close enough, close contour (20 pixels is tested)
-                    self.points_to_draw = []
-                    if self.new_spline is not None:
-                        downsampled = downsample(
-                            ([self.new_spline.full_contour[0].tolist()], [self.new_spline.full_contour[1].tolist()]),
-                            self.n_interactive_points,
-                        )
-
-                        key = self.contour_key()
-                        self._ensure_main_window_contour_structure(key)
-
-                        self.main_window.data[key][0][self.frame] = [
-                            point / self.scaling_factor for point in downsampled[0]
-                        ]
-                        self.main_window.data[key][1][self.frame] = [
-                            point / self.scaling_factor for point in downsampled[1]
-                        ]
-
-                    self.stop_contour()
-                    return
-
-            self.points_to_draw.append(Point((point.x(), point.y()), self.point_thickness, self.point_radius))
+            # Add the new point
+            new_point = Point((point.x(), point.y()), self.point_thickness, self.point_radius)
+            self.points_to_draw.append(new_point)
             self.graphics_scene.addItem(self.points_to_draw[-1])
 
+            # Start drawing spline after we have at least 3 points
+            if len(self.points_to_draw) > 2:  # Changed from 3 to 2 for better visual feedback
+                if not self.contour_drawn:
+                    # Extract coordinates from Point objects
+                    x_coords = [p.get_coords()[0] for p in self.points_to_draw]
+                    y_coords = [p.get_coords()[1] for p in self.points_to_draw]
+                    
+                    # Create the spline
+                    self.new_spline = Spline(
+                        [x_coords, y_coords],
+                        self.n_points_contour,
+                        self.contour_thickness,
+                        self.contour_configs[self.active_contour_type].color,
+                        self.contour_configs[self.active_contour_type].alpha
+                    )
+                    self.contour_drawn = True
+                else:
+                    # Update existing spline
+                    x_coords = [p.get_coords()[0] for p in self.points_to_draw]
+                    y_coords = [p.get_coords()[1] for p in self.points_to_draw]
+                    
+                    if self.new_spline is not None:
+                        self.new_spline.set_knot_points([x_coords, y_coords])
+
+            # Check if we should close the contour
+            if len(self.points_to_draw) > 3:
+                dist = math.sqrt((point.x() - start_point[0]) ** 2 + (point.y() - start_point[1]) ** 2)
+                if dist < 20:  # Close if close to start point
+                    self._close_current_contour()
+                    return
+
     def start_contour(self, contour_type: ContourType = None):
+        """
+        Start drawing a new contour of the specified type.
+        
+        Sets the active contour type, clears previous data for this frame,
+        and switches to contour drawing mode.
+        """
         if contour_type is not None:
             self.set_active_contour_type(contour_type)
 
@@ -658,6 +677,12 @@ class IVUSDisplay(QGraphicsView):
         self.display_image(update_contours=True)  # clear previous contour
 
     def stop_contour(self):
+        """
+        Stop contour drawing mode, finalize the contour for the current frame, and update the display.
+        
+        This method exits contour drawing mode, resets the cursor, and refreshes the image display with the updated contour.
+        If a contour was drawn for the current frame, it also updates the longitudinal view with the new contour.
+        """
         if self.main_window.image_displayed:
             self.contour_mode = False
             self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
@@ -884,3 +909,10 @@ class IVUSDisplay(QGraphicsView):
                 except Exception as e:
                     logger.debug(f"Could not update longitudinal view after mouse release for frame {self.frame}: {e}")
                 self.active_point_index = None
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.contour_mode:
+                self._close_current_contour()
+            else:
+                pass

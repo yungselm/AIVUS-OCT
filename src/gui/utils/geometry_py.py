@@ -1,0 +1,348 @@
+import bisect
+
+import numpy as np
+from loguru import logger
+from scipy.interpolate import splprep, splev
+from PyQt6.QtWidgets import QGraphicsEllipseItem, QGraphicsPathItem
+from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtGui import QPen, QPainterPath, QColor
+from dataclasses import dataclass
+from typing import Tuple, List, Optional, Any
+
+@dataclass
+class SplineGeometry:
+    """Pure geometric representation of a spline, no QT dependencies"""
+
+    knot_points_x: List[float]
+    knot_points_y: List[float]
+    start_coords: Tuple[float, float] | None
+    end_coords: Tuple[float, float] | None
+    n_interpolated_points: int
+    is_closed: bool = True
+    dashed: bool = False
+
+    def __post_init__(self):
+        """Validate and ensure the spline is properly set up."""
+        if len(self.knot_points_x) != len(self.knot_points_y):
+            raise ValueError("X and Y knot points must have same length")
+        if self.is_closed and len(self.knot_points_x) > 0:
+            self._ensure_closed()
+
+    def _ensure_start_end_coords(self):
+        """Ensure start and end coordinates are included as knot poitns if specified."""
+        if self.start_coords:
+            if (self.start_coords[0] not in self.knot_points_x or 
+                self.start_coords[1] not in self.knot_points_y):
+                self.knot_points_x.insert(0, self.start_coords[0])
+                self.knot_points_y.insert(0, self.start_coords[1])
+
+        if self.end_coords:
+            if (self.end_coords[0] not in self.knot_points_x or 
+                self.end_coords[1] not in self.knot_points_y):
+                insert_idx = -1 if (self.is_closed and len(self.knot_points_x) > 0) else len(self.knot_points_x)
+                self.knot_points_x.insert(insert_idx, self.end_coords[0])
+                self.knot_points_y.insert(insert_idx, self.end_coords[1])
+
+    def _ensure_closed(self):
+        """Ensure first and last points match for closed splines."""
+        if (self.knot_points_x[0] != self.knot_points_x[-1] or 
+            self.knot_points_y[0] != self.knot_points_y[-1]):
+            self.knot_points_x.append(self.knot_points_x[0])
+            self.knot_points_y.append(self.knot_points_y[0])
+
+    @classmethod
+    def from_points(cls, points: List[Tuple[float, float]], 
+                    n_interpolated_points: int, 
+                    is_closed: bool = True) -> 'SplineGeometry':
+        """Create a spline from a list of (x, y) points."""
+        if not points:
+            return cls([], [], n_interpolated_points, is_closed)
+        
+        x_coords, y_coords = zip(*points)
+        return cls(list(x_coords), list(y_coords), n_interpolated_points, is_closed)
+    
+    @classmethod
+    def from_arrays(cls, x_coords: List[float], y_coords: List[float],
+                    n_interpolated_points: int, 
+                    is_closed: bool = True) -> 'SplineGeometry':
+        """Create a spline from separate x and y arrays."""
+        return cls(list(x_coords), list(y_coords), n_interpolated_points, is_closed)
+    
+    def interpolate(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Interpolate the spline using B-splines."""
+        try:
+            # cubic splines (k=3) require at least k+1 points
+            n_points = len(self.knot_points_x)
+            if n_points < 2:
+                logger.warning(f"Not enough points for spline interpolation: {len(self.knot_points_x)}")
+                return np.array(self.knot_points_x), np.array(self.knot_points_y)
+            
+            # k is the degree. Cubic is 3. We need m > k.
+            # If we have 2 points, k=1 (linear). 3 points, k=2 (quadratic).
+            k = min(3, n_points - 1)
+
+            points_array = np.array([self.knot_points_x, self.knot_points_y])
+            
+            tck, u = splprep(points_array, u=None, s=0.0, k=k, per=int(self.is_closed))
+
+            u_new = np.linspace(u.min(), u.max(), self.n_interpolated_points)
+            x_new, y_new = splev(u_new, tck, der=0)
+
+            return x_new, y_new
+        except Exception as  e:
+            logger.error(f"Error in spline interpolation: {e}")
+            return np.array(self.knot_points_x), np.array(self.knot_points_y)
+        
+    def insert_point(self, x: float, y: float, insert_idx: Optional[int] = None) -> int:
+        """Insert a new point into the spline"""
+        if insert_idx is None:
+            insert_idx = len(self.knot_points_x)
+
+        self.knot_points_x.insert(insert_idx, x)
+        self.knot_points_y.insert(insert_idx, y)
+
+        if self.is_closed:
+            self._ensure_closed()
+
+        return insert_idx
+    
+    def find_closest_point_on_contour(self, x: float, y: float,
+                                      interpolated_x: np.ndarray,
+                                      interpolated_y: np.ndarray) -> Optional[int]:
+        """Find the closest point on the interpolated contour to the give coordinates"""
+        if len(interpolated_x) == 0:
+            return None
+        
+        distances = np.sqrt((interpolated_x - x ) ** 2 + (interpolated_y - y) ** 2)
+        min_dist = np.min(distances)
+
+        if min_dist < 20: # Distance in pixels
+            return np.argmin(distances)
+        return None
+    
+    def find_best_insertion_index(self, contour_index: int,
+                                  interpolated_x: np.ndarray,
+                                  interpolated_y: np.ndarray) -> int:
+        """Find the best index to insert a new point based on contour position."""
+        if not self.knot_points_x:
+            return 0
+        
+        path_indices = []
+        for i in range(len(self.knot_points_x)):
+            knot_x, knot_y = self.knot_points_x[i], self.knot_points_y[i]
+            distances = np.sqrt((knot_x - interpolated_x) ** 2 + (knot_y - interpolated_y) ** 2)
+            path_indices.append(np.argmin(distances))
+        
+        return bisect.bisect_left(path_indices, contour_index) # bisect keeps the order
+
+    def scale(self, factor: float) -> 'SplineGeometry':
+        """Return a scaled version of the spline."""
+        scaled_x = [x * factor for x in self.knot_points_x]
+        scaled_y = [y * factor for y in self.knot_points_y]
+        return SplineGeometry(scaled_x, scaled_y, self.n_interpolated_points, self.is_closed)
+    
+    def to_unscaled(self, scaling_factor: float) -> Tuple[List[float], List[float]]:
+        """Return unscaled knot points."""
+        return ([x / scaling_factor for x in self.knot_points_x],
+                [y / scaling_factor for y in self.knot_points_y])
+    
+    def split_at_two_indices(self, idx1: int, idx2: int) -> Tuple['SplineGeometry', 'SplineGeometry']:
+        """Splits a spline into two separate open sections, handling closed-loop redundancy."""
+        i, j = sorted([idx1, idx2])
+        
+        # If closed, the last point is a duplicate of the first.
+        kx = self.knot_points_x[:-1] if self.is_closed else self.knot_points_x
+        ky = self.knot_points_y[:-1] if self.is_closed else self.knot_points_y
+        
+        # inner segment
+        x1, y1 = kx[i : j+1], ky[i : j+1]
+        
+        # outer segment
+        # Note the +1 on the end slice to ensure the segments overlap at the knots
+        x2 = kx[j:] + kx[:i+1]
+        y2 = ky[j:] + ky[:i+1]
+
+        return (
+            SplineGeometry(x1, y1, None, None, self.n_interpolated_points, is_closed=False, dashed=False),
+            SplineGeometry(x2, y2, None, None, self.n_interpolated_points, is_closed=False, dashed=True)
+        )
+
+    def stitch_with(self, other: 'SplineGeometry', close_final: bool = True) -> 'SplineGeometry':
+        """Stitches two splines and cleans up the junction points."""
+        new_x = self.knot_points_x + other.knot_points_x[1:]
+        new_y = self.knot_points_y + other.knot_points_y[1:]
+        
+        # If we are closing it, the last point is already a duplicate of the first 
+        # because of the way split_at_two_indices wraps. 
+        # SplineGeometry.__post_init__ will call _ensure_closed, so we don't want 
+        # TWO duplicates at the end. We strip one here.
+        if close_final and len(new_x) > 1:
+            if new_x[0] == new_x[-1] and new_y[0] == new_y[-1]:
+                new_x.pop()
+                new_y.pop()
+
+        return SplineGeometry(new_x, new_y, None, None, self.n_interpolated_points, is_closed=close_final)
+    
+
+class Point(QGraphicsEllipseItem):
+    """Qt-specific point drawing class - only handles Qt interaction"""
+    
+    def __init__(self, pos, line_thickness=1, point_radius=10, color=None, transparency=255):
+        super().__init__()
+        self.line_thickness = line_thickness
+        self.point_radius = point_radius
+        self.transparency = transparency
+        
+        self.x, self.y = pos[0], pos[1]
+        
+        self.default_color = get_qt_pen(color, line_thickness, transparency)
+        self.setPen(self.default_color)
+        self._update_qt_rect()
+    
+    def get_coords(self):
+        """Get coordinates - simple wrapper for Qt compatibility"""
+        return self.x, self.y
+    
+    def update_pos(self, pos):
+        """Update point position from Qt event"""
+        self.x, self.y = pos.x(), pos.y()
+        return self._update_qt_rect()
+    
+    def _update_qt_rect(self):
+        """Update Qt rectangle from internal coordinates"""
+        self.setRect(
+            self.x - self.point_radius * 0.5,
+            self.y - self.point_radius * 0.5,
+            self.point_radius,
+            self.point_radius
+        )
+        return self.rect()
+    
+    def update_color(self):
+        """Change appearance when selected"""
+        self.setPen(QPen(Qt.GlobalColor.transparent, self.line_thickness))
+    
+    def reset_color(self):
+        """Reset to default appearance"""
+        self.setPen(self.default_color)
+
+
+class Spline(QGraphicsPathItem):
+    """Qt-specific spline drawing class initialized with SplineGeometry"""
+    
+    def __init__(self, 
+                 geometry: SplineGeometry, 
+                 color: Any = "blue", 
+                 line_thickness: int = 1, 
+                 transparency: int = 255, 
+                 dashed: bool = False):
+        super().__init__()
+        self.geometry = geometry
+        self.dashed = dashed
+        
+        pen = get_qt_pen(color, line_thickness, transparency)
+        if self.dashed:
+            pen.setStyle(Qt.PenStyle.DashLine)
+        self.setPen(pen)
+        
+        self._rebuild_path()
+
+    @property
+    def full_contours(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Compatibility property for existing IVUSDisplay code"""
+        return self.geometry.interpolate()
+    
+    @property
+    def knot_points(self) -> Tuple[List[float], List[float]]:
+        """Compatibility property for existing IVUSDisplay code"""
+        return self.geometry.knot_points_x, self.geometry.knot_points_y
+
+    def set_geometry(self, geometry: SplineGeometry):
+        """Update the underlying geometry and redraw"""
+        self.geometry = geometry
+        self._rebuild_path()
+
+    def update_style(self, dashed: Optional[bool] = None, color: Optional[Any] = None):
+        """Update visual properties dynamically"""
+        pen = self.pen()
+        if dashed is not None:
+            self.dashed = dashed
+            pen.setStyle(Qt.PenStyle.DashLine if dashed else Qt.PenStyle.SolidLine)
+        if color is not None:
+            # Re-use existing get_qt_pen logic to parse color
+            new_pen = get_qt_pen(color, pen.width(), pen.color().alpha())
+            new_pen.setStyle(pen.style())
+            pen = new_pen
+            
+        self.setPen(pen)
+
+    def _rebuild_path(self):
+        """Internal: Rebuild Qt path from the geometry object"""
+        self.path = QPainterPath()
+        
+        interpolated_x, interpolated_y = self.geometry.interpolate()
+        
+        if len(interpolated_x) > 0:
+            start_point = QPointF(interpolated_x[0], interpolated_y[0])
+            self.path.moveTo(start_point)
+            
+            for i in range(1, len(interpolated_x)):
+                self.path.lineTo(interpolated_x[i], interpolated_y[i])
+            
+            if self.geometry.is_closed:
+                self.path.closeSubpath()
+            
+            self.setPath(self.path)
+
+    def update(self, pos: QPointF, index: int, path_index: Optional[int] = None) -> int:
+        """
+        Updates the geometry and redraws. 
+        Matches the signature your IVUSDisplay.mouseMoveEvent expects.
+        """
+        if path_index is not None:
+            # Adding a new point
+            interpolated_x, interpolated_y = self.geometry.interpolate()
+            new_idx = self.geometry.insert_point(pos.x(), pos.y(), 
+                        self.geometry.find_best_insertion_index(path_index, interpolated_x, interpolated_y))
+            self._rebuild_path()
+            return new_idx
+        else:
+            # Moving an existing point
+            self.geometry.knot_points_x[index] = pos.x()
+            self.geometry.knot_points_y[index] = pos.y()
+            if self.geometry.is_closed:
+                self.geometry._ensure_closed()
+            self._rebuild_path()
+            return index
+            
+    def get_unscaled_contour(self, scaling_factor: float):
+        """Compatibility method"""
+        return self.geometry.to_unscaled(scaling_factor)
+
+
+def get_qt_pen(color, thickness, transparency=255):
+    """Create a QPen with the specified color, thickness, and transparency"""
+    if isinstance(color, str):
+        # Try to get color from Qt.GlobalColor
+        try:
+            color_enum = getattr(Qt.GlobalColor, color.lower())
+            pen_color = QColor(color_enum)
+        except AttributeError:
+            # Try to parse as hex color
+            if color.startswith('#'):
+                pen_color = QColor(color)
+            else:
+                # Default to blue
+                pen_color = QColor(Qt.GlobalColor.blue)
+    elif isinstance(color, (tuple, list)) and len(color) >= 3:
+        # RGB or RGBA tuple
+        if len(color) == 3:
+            pen_color = QColor(color[0], color[1], color[2])
+        else:
+            pen_color = QColor(color[0], color[1], color[2], color[3] if len(color) > 3 else 255)
+    else:
+        # Default to blue
+        pen_color = QColor(Qt.GlobalColor.blue)
+    
+    pen_color.setAlpha(transparency)
+    return QPen(pen_color, thickness)

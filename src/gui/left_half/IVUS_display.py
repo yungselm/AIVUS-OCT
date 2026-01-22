@@ -50,13 +50,13 @@ class IVUSDisplay(QGraphicsView):
         self.main_window = main_window
         config = main_window.config
 
-        self.n_interactive_points = config.display.n_interactive_points
-        self.n_points_contour = config.display.n_points_contour
-        self.image_size = config.display.image_size
-        self.windowing_sensitivity = config.display.windowing_sensitivity
-        self.contour_thickness = config.display.contour_thickness
-        self.point_thickness = config.display.point_thickness
-        self.point_radius = config.display.point_radius
+        self.n_interactive_points: int = config.display.n_interactive_points
+        self.n_points_contour: int = config.display.n_points_contour
+        self.image_size: int = config.display.image_size # image display in pixel (square)
+        self.windowing_sensitivity: float = config.display.windowing_sensitivity
+        self.contour_thickness: int = config.display.contour_thickness
+        self.point_thickness: int = config.display.point_thickness
+        self.point_radius: int = config.display.point_radius
 
         self.color_contour = getattr(config.display, "color_contour", (255, 255, 255))
         self.alpha_contour = getattr(config.display, "alpha_contour", 255)  # config uses 0..255
@@ -81,19 +81,19 @@ class IVUSDisplay(QGraphicsView):
             )
 
         self.graphics_scene = QGraphicsScene(self)
-        self.points_to_draw = []
-        self.contour_points = []
-        self.frame = 0
-        self.contour_mode = False
-        self.contour_drawn = False
-        self.current_contour = None  # entire contour (not only knotpoints), needed for elliptic ratio
-        self.lumen_contour = None
-        self.new_spline = None
-        self.active_point = None
-        self.active_point_index = None
-        self.measure_index = None
+        self.points_to_draw: list[Point] = []
+        self.contour_points: list[Point] = []
+        self.frame: int = 0
+        self.contour_mode: bool = False
+        self.contour_drawn: bool = False
+        self.current_contour: Spline = None  # entire contour (not only knotpoints), needed for elliptic ratio
+        self.lumen_contour: Spline = None
+        self.new_spline: Spline = None
+        self.active_point: Point = None
+        self.active_point_index: int = None
+        self.measure_index: int = None
         self.measure_colors = self.main_window.measure_colors
-        self.reference_mode = False
+        self.reference_mode: bool = False
         self.active_contour_type: ContourType = ContourType.LUMEN
 
         self.initial_window_level = 128  # window level is the center which determines the brightness of the image
@@ -112,7 +112,7 @@ class IVUSDisplay(QGraphicsView):
         """Return the string key for the given contour type (defaults to active)."""
         return (contour_type or self.active_contour_type).value
 
-    def get_contour_data(self, contour_type: ContourType = None):
+    def _get_contour_data(self, contour_type: ContourType = None):
         """Return main_window.data[...] for the given/the active contour type (or None)."""
         key = self.contour_key(contour_type)
         return self.main_window.data.get(key, None)
@@ -144,7 +144,7 @@ class IVUSDisplay(QGraphicsView):
         key = self.contour_key(contour_type)
         return self.full_contours.get(key, None)
 
-    def get_full_contour_for_frame(self, contour_type: ContourType = None, frame: int = None):
+    def _get_full_contour_for_frame(self, contour_type: ContourType = None, frame: int = None):
         """
         Return the contour (contour_x, contour_y) for a single frame and contour_type.
         Defensive: handles both old list-format and new dict-format.
@@ -165,7 +165,7 @@ class IVUSDisplay(QGraphicsView):
         except Exception:
             return None
 
-    def _ensure_main_window_contour_structure(self, key: str):
+    def ensure_main_window_contour_structure(self, key: str):
         """Create basic [ [x per frame], [y per frame] ] structure if missing."""
         if key not in self.main_window.data:
             if hasattr(self, 'images') and self.images is not None:
@@ -186,14 +186,26 @@ class IVUSDisplay(QGraphicsView):
         """
         num_frames = images.shape[0]
         self.image_width = images.shape[1]
-        self.scaling_factor = self.image_size / images.shape[1]
+        self.scaling_factor = self.image_size / images.shape[1] # image_size in config
 
         if not hasattr(self.main_window, "data") or self.main_window.data is None:
             self.main_window.data = {}
 
         self.main_window.data[ContourType.LUMEN.value] = lumen
+        self._initialize_contour_data(num_frames=num_frames)
+        self.full_contours = {ct.value: [None] * num_frames for ct in ContourType}
 
-        # Ensure every contour type has a [ [x per frame], [y per frame] ] structure
+        self._build_spline_from_contour(num_frames=num_frames)
+
+        self.images = images
+        self.main_window.longitudinal_view.set_data(self.images, self.get_full_contour_list(self.active_contour_type))
+        self.display_image(update_image=True, update_contours=True, update_phase=True)
+
+    def _initialize_contour_data(self, num_frames: int):
+        """
+        Ensure every contour type has a [ [x per frame], [y per frame] ] structure
+        initialize with number of frames
+        """
         for ct in ContourType:
             key = ct.value
             if key not in self.main_window.data:
@@ -214,9 +226,15 @@ class IVUSDisplay(QGraphicsView):
                     self.main_window.data[key][0] = [[] for _ in range(num_frames)]
                     self.main_window.data[key][1] = [[] for _ in range(num_frames)]
 
-        self.full_contours = {ct.value: [None] * num_frames for ct in ContourType}
+    def _build_spline_from_contour(self, num_frames):
+        """
+        For each contour type, try to build a Spline -> unscaled contour (if data exists)
+        
+        :param self: Description
+        :param num_frames: Description
 
-        # For each contour type, try to build a Spline -> unscaled contour (if data exists)
+        :returns: self (stores contours in self.full_contours)
+        """
         for ct in ContourType:
             key = ct.value
             contour_data = self.main_window.data.get(key, [[], []])
@@ -238,10 +256,6 @@ class IVUSDisplay(QGraphicsView):
                 except Exception:
                     self.full_contours[key][frame] = None
 
-        self.images = images
-        self.main_window.longitudinal_view.set_data(self.images, self.get_full_contour_list(self.active_contour_type))
-        self.display_image(update_image=True, update_contours=True, update_phase=True)
-
     def display_image(self, update_image=False, update_contours=False, update_phase=False):
         image_types = (QGraphicsPixmapItem, Marker)
 
@@ -259,6 +273,7 @@ class IVUSDisplay(QGraphicsView):
                 Qt.AspectRatioMode.IgnoreAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
+
             self.graphics_scene.addItem(QGraphicsPixmapItem(QPixmap.fromImage(q_image)))
             self._add_center_marker(int(h))
 
@@ -270,8 +285,8 @@ class IVUSDisplay(QGraphicsView):
         else:
             if update_contours:
                 self._draw_contours()
-                self.draw_measure()
-                self.draw_reference()
+                self._draw_measure()
+                self._draw_reference()
                 self._maybe_compute_metrics()
             else:
                 for it in old_overlays:
@@ -338,7 +353,7 @@ class IVUSDisplay(QGraphicsView):
 
     def _draw_contours(self):
         # lumen
-        lumen = self.get_contour_data(ContourType.LUMEN)
+        lumen = self._get_contour_data(ContourType.LUMEN)
         if lumen and lumen[0][self.frame]:
             self.draw_contour(lumen, contour_type=ContourType.LUMEN,
                             set_current=(self.active_contour_type == ContourType.LUMEN))
@@ -352,7 +367,7 @@ class IVUSDisplay(QGraphicsView):
         for ct in ContourType:
             if ct == ContourType.LUMEN:
                 continue
-            data = self.get_contour_data(ct)
+            data = self._get_contour_data(ct)
             if data and data[0][self.frame]:
                 self.draw_contour(data, contour_type=ct, set_current=(ct == self.active_contour_type))
 
@@ -417,7 +432,7 @@ class IVUSDisplay(QGraphicsView):
         percent_text = "n/a"
         try:
             # Preferred: use prepared full_contours for EEM (display coords)
-            eem_full = self.get_full_contour_for_frame(ContourType.EEM, frame)
+            eem_full = self._get_full_contour_for_frame(ContourType.EEM, frame)
             if eem_full is not None:
                 try:
                     eem_x, eem_y = eem_full
@@ -435,7 +450,7 @@ class IVUSDisplay(QGraphicsView):
 
             # Fallback: use main_window.data (original image coords) and scale to display coords
             if eem_area is None:
-                eem_data = self.get_contour_data(ContourType.EEM)
+                eem_data = self._get_contour_data(ContourType.EEM)
                 if eem_data and isinstance(eem_data, (list, tuple)) and len(eem_data) >= 2:
                     xs_orig = ys_orig = None
                     try:
@@ -576,7 +591,7 @@ class IVUSDisplay(QGraphicsView):
             )
 
             key = self.contour_key()
-            self._ensure_main_window_contour_structure(key)
+            self.ensure_main_window_contour_structure(key)
 
             self.main_window.data[key][0][self.frame] = [
                 point / self.scaling_factor for point in downsampled[0]
@@ -660,7 +675,7 @@ class IVUSDisplay(QGraphicsView):
         self.points_to_draw = []
 
         key = self.contour_key()
-        self._ensure_main_window_contour_structure(key)
+        self.ensure_main_window_contour_structure(key)
 
         self.main_window.data[key][0][self.frame] = []
         self.main_window.data[key][1][self.frame] = []
@@ -678,13 +693,13 @@ class IVUSDisplay(QGraphicsView):
             self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
             self.display_image(update_contours=True)
 
-            contour_for_frame = self.get_full_contour_for_frame(self.active_contour_type, self.frame)
+            contour_for_frame = self._get_full_contour_for_frame(self.active_contour_type, self.frame)
             try:
                 self.main_window.longitudinal_view.lview_contour(self.frame, contour_for_frame, update=True)
             except Exception as e:
                 logger.debug(f"Could not update longitudinal view for frame {self.frame}: {e}")
 
-    def draw_measure(self):
+    def _draw_measure(self):
         for index in range(2):
             if (
                 self.main_window.data['measures'][self.frame][index] is not None
@@ -744,7 +759,7 @@ class IVUSDisplay(QGraphicsView):
                 self.frame, index, self.main_window['measures'][self.frame][index]
             )
 
-    def draw_reference(self):
+    def _draw_reference(self):
         if self.main_window.data['reference'][self.frame] is not None:
             reference_point = self.main_window.data['reference'][self.frame]
             # Convert original coordinates to scaled display coordinates
@@ -817,7 +832,7 @@ class IVUSDisplay(QGraphicsView):
         nearest_ct = None
 
         for ct in ContourType:
-            contour_data = self.get_contour_data(ct)
+            contour_data = self._get_contour_data(ct)
             if not contour_data or not contour_data[0][self.frame]:
                 continue
 
@@ -894,7 +909,7 @@ class IVUSDisplay(QGraphicsView):
                 item.reset_color()
 
                 key = self.contour_key()
-                self._ensure_main_window_contour_structure(key)
+                self.ensure_main_window_contour_structure(key)
 
                 self.main_window.data[key][0][self.frame] = [
                     point / self.scaling_factor for point in self.current_contour.knot_points[0]
@@ -902,7 +917,7 @@ class IVUSDisplay(QGraphicsView):
                 self.main_window.data[key][1][self.frame] = [
                     point / self.scaling_factor for point in self.current_contour.knot_points[1]
                 ]
-                contour_for_frame = self.get_full_contour_for_frame(self.active_contour_type, self.frame)
+                contour_for_frame = self._get_full_contour_for_frame(self.active_contour_type, self.frame)
                 self.display_image(update_contours=True)
                 try:
                     self.main_window.longitudinal_view.lview_contour(self.frame, contour_for_frame, update=True)
@@ -913,6 +928,10 @@ class IVUSDisplay(QGraphicsView):
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             if self.contour_mode:
+                print("Active Point:", self.active_point)
+                print("Active Point Index:", self.active_point_index)
                 self._close_current_contour()
             else:
+                print("Active Point:", self.active_point)
+                print("Active Point Index:", self.active_point_index)
                 pass

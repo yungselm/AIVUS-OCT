@@ -35,7 +35,7 @@ class ContourConfig:
     thickness: int
     point_radius: int
     point_thickness: int
-    alpha: float
+    alpha: int
     n_points_contour: int
     n_interactive_points: int
 
@@ -95,6 +95,7 @@ class IVUSDisplay(QGraphicsView):
         self.measure_colors = self.main_window.measure_colors
         self.reference_mode: bool = False
         self.active_contour_type: ContourType = ContourType.LUMEN
+        self.split_index: None | int = None # if there is a split index two splines are shown
 
         self.initial_window_level = 128  # window level is the center which determines the brightness of the image
         self.initial_window_width = 256  # window width is the range of pixel values that are displayed
@@ -229,11 +230,6 @@ class IVUSDisplay(QGraphicsView):
     def _build_spline_from_contour(self, num_frames):
         """
         For each contour type, try to build a Spline -> unscaled contour (if data exists)
-        
-        :param self: Description
-        :param num_frames: Description
-
-        :returns: self (stores contours in self.full_contours)
         """
         for ct in ContourType:
             key = ct.value
@@ -295,6 +291,9 @@ class IVUSDisplay(QGraphicsView):
         if update_phase:
             self._update_phase_text()
 
+    def update_display(self):
+        self.display_image(update_image=True, update_contours=True, update_phase=True)
+
     def _remove_image_items(self, image_types):
         for it in list(self.graphics_scene.items()):
             if isinstance(it, image_types):
@@ -350,26 +349,6 @@ class IVUSDisplay(QGraphicsView):
         for it in list(self.graphics_scene.items()):
             if not isinstance(it, image_types):
                 self.graphics_scene.removeItem(it)
-
-    def _draw_contours(self):
-        # lumen
-        lumen = self._get_contour_data(ContourType.LUMEN)
-        if lumen and lumen[0][self.frame]:
-            self.draw_contour(lumen, contour_type=ContourType.LUMEN,
-                            set_current=(self.active_contour_type == ContourType.LUMEN))
-        else:
-            self.lumen_contour = None
-            if self.active_contour_type == ContourType.LUMEN:
-                self.current_contour = None
-                self.contour_points = []
-
-        # other contours
-        for ct in ContourType:
-            if ct == ContourType.LUMEN:
-                continue
-            data = self._get_contour_data(ct)
-            if data and data[0][self.frame]:
-                self.draw_contour(data, contour_type=ct, set_current=(ct == self.active_contour_type))
 
     def _maybe_compute_metrics(self):
         lc = getattr(self, "lumen_contour", None)
@@ -535,6 +514,149 @@ class IVUSDisplay(QGraphicsView):
             except Exception:
                 pass
 
+    def _draw_measure(self):
+        for index in range(2):
+            if (
+                self.main_window.data['measures'][self.frame][index] is not None
+                and len(self.main_window.data['measures'][self.frame][index]) == 4
+            ):
+                first_point = QPointF(
+                    self.main_window.data['measures'][self.frame][index][0],
+                    self.main_window.data['measures'][self.frame][index][1],
+                )
+                second_point = QPointF(
+                    self.main_window.data['measures'][self.frame][index][2],
+                    self.main_window.data['measures'][self.frame][index][3],
+                )
+                self.main_window.data['measures'][self.frame][index] = None
+                self.add_measure(first_point, index=index, new=False)
+                self.add_measure(second_point, index=index, new=False)
+
+    def add_measure(self, point, index=None, new=True):
+        index = index if index is not None else self.measure_index
+        new_point = Point((point.x(), point.y()), self.point_thickness, self.point_radius, self.measure_colors[index])
+        self.graphics_scene.addItem(new_point)
+
+        if self.main_window.data['measures'][self.frame][index] is None:
+            self.main_window.data['measures'][self.frame][index] = [point.x(), point.y()]
+        else:  # second point
+            self.main_window.data['measures'][self.frame][index] += [point.x(), point.y()]
+            line = QLineF(
+                self.main_window.data['measures'][self.frame][index][0],
+                self.main_window.data['measures'][self.frame][index][1],
+                self.main_window.data['measures'][self.frame][index][2],
+                self.main_window.data['measures'][self.frame][index][3],
+            )
+            length = round(line.length() * self.main_window.metadata["resolution"] / self.scaling_factor, 2)
+            self.main_window.data['measure_lengths'][self.frame][index] = length
+            length_text = QGraphicsTextItem(f'{length} mm')
+            length_text.setPos(point.x(), point.y())
+            self.graphics_scene.addItem(length_text)
+            self.graphics_scene.addLine(line, get_qt_pen(self.measure_colors[index], self.point_thickness))
+            if new:
+                self.measure_index = None
+                self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def start_measure(self, index: int):
+        if self.contour_mode:
+            self.stop_contour()
+        self.main_window.data['measures'][self.frame][index] = None
+        self.main_window.setCursor(Qt.CrossCursor)
+        self.measure_index = index
+        self.display_image(update_contours=True)
+
+    def stop_measure(self, index):
+        if self.main_window.image_displayed:
+            self.measure_index = None
+            self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
+            self.display_image(update_contours=True)
+            self.main_window.longitudinal_view.update_measure(
+                self.frame, index, self.main_window['measures'][self.frame][index]
+            )
+
+    def _draw_reference(self):
+        if self.main_window.data['reference'][self.frame] is not None:
+            reference_point = self.main_window.data['reference'][self.frame]
+            # Convert original coordinates to scaled display coordinates
+            scaled_x = reference_point[0] * self.scaling_factor
+            scaled_y = reference_point[1] * self.scaling_factor
+            reference = Point(
+                (scaled_x, scaled_y),
+                self.point_thickness,
+                self.point_radius,
+                self.main_window.reference_color,
+            )
+            self.graphics_scene.addItem(reference)
+            text = QGraphicsTextItem('Reference')
+            text.setPos(scaled_x, scaled_y)  # Position text at scaled coordinates
+            self.graphics_scene.addItem(text)
+
+    def start_reference(self):
+        self.reference_mode = True
+        self.main_window.setCursor(Qt.CrossCursor)
+        self.main_window.data['reference'][self.frame] = None
+        self.display_image(update_contours=True)
+
+    def _handle_reference_placement(self, pos):
+        """Saves the reference point and exits reference mode."""
+        original_x = pos.x() / self.scaling_factor
+        original_y = pos.y() / self.scaling_factor
+        self.main_window.data['reference'][self.frame] = [original_x, original_y]
+        
+        self.reference_mode = False
+        self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
+        self.display_image(update_contours=True)
+
+    def _attempt_contour_switch(self, pos):
+        """Switches active contour type if clicking near a different contour's knotpoint."""
+        threshold_px = 20 
+        min_dist = float('inf')
+        nearest_ct = None
+
+        for ct in ContourType:
+            contour_data = self._get_contour_data(ct)
+            if not contour_data or not contour_data[0][self.frame]:
+                continue
+
+            xs, ys = contour_data[0][self.frame], contour_data[1][self.frame]
+            for x_orig, y_orig in zip(xs, ys):
+                dist = math.hypot(pos.x() - (x_orig * self.scaling_factor), 
+                                pos.y() - (y_orig * self.scaling_factor))
+                if dist < min_dist:
+                    min_dist = dist
+                    nearest_ct = ct
+
+        if nearest_ct and min_dist < threshold_px and nearest_ct != self.active_contour_type:
+            self.set_active_contour_type(nearest_ct)
+            self.display_image(update_contours=True)
+
+    def set_frame(self, value):
+        self.frame = value
+        self.current_contour = None
+        self.stop_contour()
+        if self.measure_index is not None:
+            self.stop_measure(self.measure_index)
+
+    def _draw_contours(self):
+        # lumen
+        lumen = self._get_contour_data(ContourType.LUMEN)
+        if lumen and lumen[0][self.frame]:
+            self.draw_contour(lumen, contour_type=ContourType.LUMEN,
+                            set_current=(self.active_contour_type == ContourType.LUMEN))
+        else:
+            self.lumen_contour = None
+            if self.active_contour_type == ContourType.LUMEN:
+                self.current_contour = None
+                self.contour_points = []
+
+        # other contours
+        for ct in ContourType:
+            if ct == ContourType.LUMEN:
+                continue
+            data = self._get_contour_data(ct)
+            if data and data[0][self.frame]:
+                self.draw_contour(data, contour_type=ct, set_current=(ct == self.active_contour_type))
+
     def draw_contour(self, contour_data, contour_type: ContourType = None, set_current: bool = False):
         """
         Draw contour_data for the specified contour_type.
@@ -693,160 +815,11 @@ class IVUSDisplay(QGraphicsView):
             self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
             self.display_image(update_contours=True)
 
-            contour_for_frame = self._get_full_contour_for_frame(self.active_contour_type, self.frame)
+            contour_for_frame: Tuple[np.array, np.array] = self._get_full_contour_for_frame(self.active_contour_type, self.frame)
             try:
                 self.main_window.longitudinal_view.lview_contour(self.frame, contour_for_frame, update=True)
             except Exception as e:
                 logger.debug(f"Could not update longitudinal view for frame {self.frame}: {e}")
-
-    def _draw_measure(self):
-        for index in range(2):
-            if (
-                self.main_window.data['measures'][self.frame][index] is not None
-                and len(self.main_window.data['measures'][self.frame][index]) == 4
-            ):
-                first_point = QPointF(
-                    self.main_window.data['measures'][self.frame][index][0],
-                    self.main_window.data['measures'][self.frame][index][1],
-                )
-                second_point = QPointF(
-                    self.main_window.data['measures'][self.frame][index][2],
-                    self.main_window.data['measures'][self.frame][index][3],
-                )
-                self.main_window.data['measures'][self.frame][index] = None
-                self.add_measure(first_point, index=index, new=False)
-                self.add_measure(second_point, index=index, new=False)
-
-    def add_measure(self, point, index=None, new=True):
-        index = index if index is not None else self.measure_index
-        new_point = Point((point.x(), point.y()), self.point_thickness, self.point_radius, self.measure_colors[index])
-        self.graphics_scene.addItem(new_point)
-
-        if self.main_window.data['measures'][self.frame][index] is None:
-            self.main_window.data['measures'][self.frame][index] = [point.x(), point.y()]
-        else:  # second point
-            self.main_window.data['measures'][self.frame][index] += [point.x(), point.y()]
-            line = QLineF(
-                self.main_window.data['measures'][self.frame][index][0],
-                self.main_window.data['measures'][self.frame][index][1],
-                self.main_window.data['measures'][self.frame][index][2],
-                self.main_window.data['measures'][self.frame][index][3],
-            )
-            length = round(line.length() * self.main_window.metadata["resolution"] / self.scaling_factor, 2)
-            self.main_window.data['measure_lengths'][self.frame][index] = length
-            length_text = QGraphicsTextItem(f'{length} mm')
-            length_text.setPos(point.x(), point.y())
-            self.graphics_scene.addItem(length_text)
-            self.graphics_scene.addLine(line, get_qt_pen(self.measure_colors[index], self.point_thickness))
-            if new:
-                self.measure_index = None
-                self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
-
-    def start_measure(self, index: int):
-        if self.contour_mode:
-            self.stop_contour()
-        self.main_window.data['measures'][self.frame][index] = None
-        self.main_window.setCursor(Qt.CrossCursor)
-        self.measure_index = index
-        self.display_image(update_contours=True)
-
-    def stop_measure(self, index):
-        if self.main_window.image_displayed:
-            self.measure_index = None
-            self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
-            self.display_image(update_contours=True)
-            self.main_window.longitudinal_view.update_measure(
-                self.frame, index, self.main_window['measures'][self.frame][index]
-            )
-
-    def _draw_reference(self):
-        if self.main_window.data['reference'][self.frame] is not None:
-            reference_point = self.main_window.data['reference'][self.frame]
-            # Convert original coordinates to scaled display coordinates
-            scaled_x = reference_point[0] * self.scaling_factor
-            scaled_y = reference_point[1] * self.scaling_factor
-            reference = Point(
-                (scaled_x, scaled_y),
-                self.point_thickness,
-                self.point_radius,
-                self.main_window.reference_color,
-            )
-            self.graphics_scene.addItem(reference)
-            text = QGraphicsTextItem('Reference')
-            text.setPos(scaled_x, scaled_y)  # Position text at scaled coordinates
-            self.graphics_scene.addItem(text)
-
-    def start_reference(self):
-        self.reference_mode = True
-        self.main_window.setCursor(Qt.CrossCursor)
-        self.main_window.data['reference'][self.frame] = None
-        self.display_image(update_contours=True)
-
-    def update_display(self):
-        self.display_image(update_image=True, update_contours=True, update_phase=True)
-
-    def set_frame(self, value):
-        self.frame = value
-        self.current_contour = None
-        self.stop_contour()
-        if self.measure_index is not None:
-            self.stop_measure(self.measure_index)
-
-    def mousePressEvent(self, event):
-        pos = self.mapToScene(event.position().toPoint())
-        
-        if event.button() == Qt.MouseButton.LeftButton:
-            if self.contour_mode:
-                self.add_contour(pos)
-            elif self.measure_index is not None:
-                self.add_measure(pos)
-            elif self.reference_mode:
-                self._handle_reference_placement(pos)
-            else:
-                # First, try to switch active contour if user clicked near another one
-                self._attempt_contour_switch(pos)
-                # Then, handle interaction with points or the spline path
-                self._handle_item_interaction(pos, event.pos())
-
-        elif event.button() == Qt.MouseButton.RightButton:
-            # Store for windowing/leveling or context menus
-            self.mouse_x = event.position().x()
-            self.mouse_y = event.position().y()
-
-        super().mousePressEvent(event)
-
-    def _handle_reference_placement(self, pos):
-        """Saves the reference point and exits reference mode."""
-        original_x = pos.x() / self.scaling_factor
-        original_y = pos.y() / self.scaling_factor
-        self.main_window.data['reference'][self.frame] = [original_x, original_y]
-        
-        self.reference_mode = False
-        self.main_window.setCursor(Qt.CursorShape.ArrowCursor)
-        self.display_image(update_contours=True)
-
-    def _attempt_contour_switch(self, pos):
-        """Switches active contour type if clicking near a different contour's knotpoint."""
-        threshold_px = 20 
-        min_dist = float('inf')
-        nearest_ct = None
-
-        for ct in ContourType:
-            contour_data = self._get_contour_data(ct)
-            if not contour_data or not contour_data[0][self.frame]:
-                continue
-
-            xs, ys = contour_data[0][self.frame], contour_data[1][self.frame]
-            for x_orig, y_orig in zip(xs, ys):
-                dist = math.hypot(pos.x() - (x_orig * self.scaling_factor), 
-                                pos.y() - (y_orig * self.scaling_factor))
-                if dist < min_dist:
-                    min_dist = dist
-                    nearest_ct = ct
-
-        if nearest_ct and min_dist < threshold_px and nearest_ct != self.active_contour_type:
-            self.set_active_contour_type(nearest_ct)
-            self.display_image(update_contours=True)
 
     def _handle_item_interaction(self, scene_pos, view_pos):
         """Handles clicking existing knotpoints or adding new ones to a spline."""
@@ -884,6 +857,29 @@ class IVUSDisplay(QGraphicsView):
         self.graphics_scene.addItem(self.active_point)
         self.active_point.update_color()
         self.active_point_index = self.current_contour.update(pos, self.active_point_index, path_index)
+
+    def mousePressEvent(self, event):
+        pos = self.mapToScene(event.position().toPoint())
+        
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self.contour_mode:
+                self.add_contour(pos)
+            elif self.measure_index is not None:
+                self.add_measure(pos)
+            elif self.reference_mode:
+                self._handle_reference_placement(pos)
+            else:
+                # First, try to switch active contour if user clicked near another one
+                self._attempt_contour_switch(pos)
+                # Then, handle interaction with points or the spline path
+                self._handle_item_interaction(pos, event.pos())
+
+        elif event.button() == Qt.MouseButton.RightButton:
+            # Store for windowing/leveling or context menus
+            self.mouse_x = event.position().x()
+            self.mouse_y = event.position().y()
+
+        super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton:

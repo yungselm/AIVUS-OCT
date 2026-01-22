@@ -51,22 +51,21 @@ class SplineGeometry:
             self.knot_points_y.append(self.knot_points_y[0])
 
     @classmethod
-    def from_points(cls, points: List[Tuple[float, float]], 
-                    n_interpolated_points: int, 
+    def from_points(cls, points: List[Tuple[float, float]],
+                    n_interpolated_points: int,
                     is_closed: bool = True) -> 'SplineGeometry':
         """Create a spline from a list of (x, y) points."""
         if not points:
-            return cls([], [], n_interpolated_points, is_closed)
-        
+            return cls([], [], None, None, n_interpolated_points, is_closed)
         x_coords, y_coords = zip(*points)
-        return cls(list(x_coords), list(y_coords), n_interpolated_points, is_closed)
-    
+        return cls(list(x_coords), list(y_coords), None, None, n_interpolated_points, is_closed)
+
     @classmethod
     def from_arrays(cls, x_coords: List[float], y_coords: List[float],
-                    n_interpolated_points: int, 
+                    n_interpolated_points: int,
                     is_closed: bool = True) -> 'SplineGeometry':
         """Create a spline from separate x and y arrays."""
-        return cls(list(x_coords), list(y_coords), n_interpolated_points, is_closed)
+        return cls(list(x_coords), list(y_coords), None, None, n_interpolated_points, is_closed)
     
     def interpolate(self) -> Tuple[np.ndarray, np.ndarray]:
         """Interpolate the spline using B-splines."""
@@ -344,5 +343,11 @@ def get_qt_pen(color, thickness, transparency=255):
         # Default to blue
         pen_color = QColor(Qt.GlobalColor.blue)
     
+    if not isinstance(transparency, int):
+        try:
+            transparency = int(transparency)
+        except (ValueError, TypeError):
+            transparency = 255
+
     pen_color.setAlpha(transparency)
     return QPen(pen_color, thickness)

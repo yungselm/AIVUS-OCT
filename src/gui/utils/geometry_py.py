@@ -296,7 +296,7 @@ class Spline(QGraphicsPathItem):
     def update(self, pos: QPointF, index: int, path_index: Optional[int] = None) -> int:
         """
         Updates the geometry and redraws. 
-        Matches the signature your IVUSDisplay.mouseMoveEvent expects.
+        Matches the signature IVUSDisplay.mouseMoveEvent expects.
         """
         if path_index is not None:
             # Adding a new point

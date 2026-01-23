@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt, QLineF, QPointF
 from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QPen
 from shapely.geometry import Polygon
 
+# from gui.utils.geometry_py import Point, Spline, SplineGeometry, get_qt_pen
 from gui.utils.geometry import Point, Spline, get_qt_pen
 from gui.right_half.longitudinal_view import Marker
 from report.report import compute_polygon_metrics, farthest_points, closest_points
@@ -86,16 +87,19 @@ class IVUSDisplay(QGraphicsView):
         self.frame: int = 0
         self.contour_mode: bool = False
         self.contour_drawn: bool = False
-        self.current_contour: Spline = None  # entire contour (not only knotpoints), needed for elliptic ratio
-        self.lumen_contour: Spline = None
-        self.new_spline: Spline = None
+        self.full_contours: dict = {}
+
+        self.current_spline: Spline | Tuple[Spline, Spline] = None  # entire contour (not only knotpoints), needed for elliptic ratio
+        self.lumen_spline: Spline | Tuple[Spline, Spline] = None
+        self.new_spline: Spline | Tuple[Spline, Spline] = None
+
         self.active_point: Point = None
         self.active_point_index: int = None
         self.measure_index: int = None
         self.measure_colors = self.main_window.measure_colors
         self.reference_mode: bool = False
         self.active_contour_type: ContourType = ContourType.LUMEN
-        self.split_index: None | int = None # if there is a split index two splines are shown
+        self.split_index_dict: dict = {}
 
         self.initial_window_level = 128  # window level is the center which determines the brightness of the image
         self.initial_window_width = 256  # window width is the range of pixel values that are displayed
@@ -109,11 +113,18 @@ class IVUSDisplay(QGraphicsView):
         self.graphics_scene.addItem(image)
         self.setScene(self.graphics_scene)
 
+    def set_frame(self, value):
+        self.frame = value
+        self.current_spline = None
+        self.stop_contour()
+        if self.measure_index is not None:
+            self.stop_measure(self.measure_index)
+
     def contour_key(self, contour_type: ContourType = None) -> str:
         """Return the string key for the given contour type (defaults to active)."""
         return (contour_type or self.active_contour_type).value
 
-    def _get_contour_data(self, contour_type: ContourType = None):
+    def _get_contour_data(self, contour_type: ContourType = None) -> list[list[Any], list[Any]]:
         """Return main_window.data[...] for the given/the active contour type (or None)."""
         key = self.contour_key(contour_type)
         return self.main_window.data.get(key, None)
@@ -124,60 +135,12 @@ class IVUSDisplay(QGraphicsView):
             return
         self.active_contour_type = contour_type
 
-        self.current_contour = None
+        self.current_spline = None
         self.contour_points = []
         self.active_point = None
         self.active_point_index = None
 
         self.display_image(update_contours=True, update_image=False, update_phase=False)
-
-    def get_full_contour_list(self, contour_type: ContourType = None):
-        """
-        Return the list-of-frame full_contours for a contour type.
-        If full_contours is still a list (legacy), return it directly.
-        """
-        # if legacy list
-        if not hasattr(self, "full_contours"):
-            return None
-        if isinstance(self.full_contours, list):
-            return self.full_contours
-        # dict path (preferred): return list or None
-        key = self.contour_key(contour_type)
-        return self.full_contours.get(key, None)
-
-    def _get_full_contour_for_frame(self, contour_type: ContourType = None, frame: int = None):
-        """
-        Return the contour (contour_x, contour_y) for a single frame and contour_type.
-        Defensive: handles both old list-format and new dict-format.
-        """
-        frame = self.frame if frame is None else frame
-        # try dict style first
-        if isinstance(getattr(self, "full_contours", None), dict):
-            key = self.contour_key(contour_type)
-            contour_list = self.full_contours.get(key)
-            if contour_list is None:
-                return None
-            if 0 <= frame < len(contour_list):
-                return contour_list[frame]
-            return None
-        # fallback to legacy list style
-        try:
-            return self.full_contours[frame]
-        except Exception:
-            return None
-
-    def ensure_main_window_contour_structure(self, key: str):
-        """Create basic [ [x per frame], [y per frame] ] structure if missing."""
-        if key not in self.main_window.data:
-            if hasattr(self, 'images') and self.images is not None:
-                nframes = self.images.shape[0]
-            else:
-                nframes = 0
-            self.main_window.data[key] = [[] for _ in range(2)]
-            # make per-frame lists for both x/y
-            if nframes:
-                self.main_window.data[key][0] = [[] for _ in range(nframes)]
-                self.main_window.data[key][1] = [[] for _ in range(nframes)]
 
     def set_data(self, lumen, images):
         """
@@ -251,6 +214,54 @@ class IVUSDisplay(QGraphicsView):
                         self.full_contours[key][frame] = None
                 except Exception:
                     self.full_contours[key][frame] = None
+
+    def get_full_contour_list(self, contour_type: ContourType = None):
+        """
+        Return the list-of-frame full_contours for a contour type.
+        If full_contours is still a list (legacy), return it directly.
+        """
+        # if legacy list
+        if not hasattr(self, "full_contours"):
+            return None
+        if isinstance(self.full_contours, list):
+            return self.full_contours
+        # dict path (preferred): return list or None
+        key = self.contour_key(contour_type)
+        return self.full_contours.get(key, None)
+
+    def _get_full_contour_for_frame(self, contour_type: ContourType = None, frame: int = None):
+        """
+        Return the contour (contour_x, contour_y) for a single frame and contour_type.
+        Defensive: handles both old list-format and new dict-format.
+        """
+        frame = self.frame if frame is None else frame
+        # try dict style first
+        if isinstance(getattr(self, "full_contours", None), dict):
+            key = self.contour_key(contour_type)
+            contour_list = self.full_contours.get(key)
+            if contour_list is None:
+                return None
+            if 0 <= frame < len(contour_list):
+                return contour_list[frame]
+            return None
+        # fallback to legacy list style
+        try:
+            return self.full_contours[frame]
+        except Exception:
+            return None
+
+    def ensure_main_window_contour_structure(self, key: str):
+        """Create basic [ [x per frame], [y per frame] ] structure if missing."""
+        if key not in self.main_window.data:
+            if hasattr(self, 'images') and self.images is not None:
+                nframes = self.images.shape[0]
+            else:
+                nframes = 0
+            self.main_window.data[key] = [[] for _ in range(2)]
+            # make per-frame lists for both x/y
+            if nframes:
+                self.main_window.data[key][0] = [[] for _ in range(nframes)]
+                self.main_window.data[key][1] = [[] for _ in range(nframes)]
 
     def display_image(self, update_image=False, update_contours=False, update_phase=False):
         image_types = (QGraphicsPixmapItem, Marker)
@@ -351,7 +362,7 @@ class IVUSDisplay(QGraphicsView):
                 self.graphics_scene.removeItem(it)
 
     def _maybe_compute_metrics(self):
-        lc = getattr(self, "lumen_contour", None)
+        lc = getattr(self, "lumen_spline", None)
         if not lc or getattr(lc, "full_contour", None) is None or lc.full_contour[0] is None:
             return
 
@@ -630,13 +641,6 @@ class IVUSDisplay(QGraphicsView):
             self.set_active_contour_type(nearest_ct)
             self.display_image(update_contours=True)
 
-    def set_frame(self, value):
-        self.frame = value
-        self.current_contour = None
-        self.stop_contour()
-        if self.measure_index is not None:
-            self.stop_measure(self.measure_index)
-
     def _draw_contours(self):
         # lumen
         lumen = self._get_contour_data(ContourType.LUMEN)
@@ -644,9 +648,9 @@ class IVUSDisplay(QGraphicsView):
             self.draw_contour(lumen, contour_type=ContourType.LUMEN,
                             set_current=(self.active_contour_type == ContourType.LUMEN))
         else:
-            self.lumen_contour = None
+            self.lumen_spline = None
             if self.active_contour_type == ContourType.LUMEN:
-                self.current_contour = None
+                self.current_spline = None
                 self.contour_points = []
 
         # other contours
@@ -660,8 +664,8 @@ class IVUSDisplay(QGraphicsView):
     def draw_contour(self, contour_data, contour_type: ContourType = None, set_current: bool = False):
         """
         Draw contour_data for the specified contour_type.
-        - If set_current is True, this spline becomes self.current_contour (editing target).
-        - If contour_type == ContourType.LUMEN also set self.lumen_contour for metrics.
+        - If set_current is True, this spline becomes self.current_spline (editing target).
+        - If contour_type == ContourType.LUMEN also set self.lumen_spline for metrics.
         """
         if not contour_data or not contour_data[0][self.frame]:
             return
@@ -696,33 +700,38 @@ class IVUSDisplay(QGraphicsView):
             self.full_contours[self.contour_key(ct)][self.frame] = spline.get_unscaled_contour(self.scaling_factor)
 
             if ct == ContourType.LUMEN:
-                self.lumen_contour = spline
+                self.lumen_spline = spline
 
             if set_current:
-                self.current_contour = spline
+                self.current_spline = spline
                 self.contour_points = knot_points
         else:
             logger.warning(f'Spline for frame {self.frame + 1} could not be interpolated for {ct.value}')
 
-    def _close_current_contour(self):
-        """Close the current contour and save it."""
-        if self.new_spline is not None:
-            downsampled = downsample(
-                ([self.new_spline.full_contour[0].tolist()], [self.new_spline.full_contour[1].tolist()]),
-                self.n_interactive_points,
-            )
+    ###############################
+    # Start contour drawing logic #
+    ###############################
+    def start_contour(self, contour_type: ContourType = None):
+        """
+        Start drawing a new contour of the specified type.
+        
+        Sets the active contour type, clears previous data for this frame,
+        and switches to contour drawing mode.
+        """
+        if contour_type is not None:
+            self.set_active_contour_type(contour_type)
 
-            key = self.contour_key()
-            self.ensure_main_window_contour_structure(key)
+        self.measure_index = None
+        self.main_window.setCursor(Qt.CursorShape.CrossCursor)
+        self.contour_mode = True
+        self.points_to_draw = []
 
-            self.main_window.data[key][0][self.frame] = [
-                point / self.scaling_factor for point in downsampled[0]
-            ]
-            self.main_window.data[key][1][self.frame] = [
-                point / self.scaling_factor for point in downsampled[1]
-            ]
+        key = self.contour_key()
+        self.ensure_main_window_contour_structure(key)
 
-        self.stop_contour()
+        self.main_window.data[key][0][self.frame] = []
+        self.main_window.data[key][1][self.frame] = []
+        self.display_image(update_contours=True)  # clear previous contour
 
     def add_contour(self, click_pos):
         """Handles logic for adding a new point to a manual contour being drawn."""
@@ -731,7 +740,12 @@ class IVUSDisplay(QGraphicsView):
             self._reset_contour_drawing()
             return
 
-        # 2. Point Placement: Create and store the new knot point
+        # 2. Closure Check: See if the user clicked near the start to finish the shape
+        if self._should_close_contour(click_pos):
+            self._close_current_spline()
+            return
+
+        # 3. Point Placement: Create and store the new knot point
         new_point = self._create_knot_point(click_pos)
         self.points_to_draw.append(new_point)
         self.graphics_scene.addItem(new_point)
@@ -740,15 +754,18 @@ class IVUSDisplay(QGraphicsView):
         if len(self.points_to_draw) >= 3:
             self._update_or_create_spline()
 
-        # 4. Closure Check: See if the user clicked near the start to finish the shape
-        if self._should_close_contour(click_pos):
-            self._close_current_contour()
-
     def _is_drawing_valid(self) -> bool:
         """Checks if the first point is valid; returns False if drawing was interrupted."""
         if not self.points_to_draw:
             return True
         return self.points_to_draw[0].get_coords()[0] is not None
+    
+    def _reset_contour_drawing(self):
+        """Resets the contour drawing state and refreshes the display."""
+        self.points_to_draw = []
+        self.new_spline = None
+        self.contour_drawn = False
+        self.display_image(update_contours=True)
 
     def _create_knot_point(self, pos) -> Point:
         """Helper to instantiate a Point with current config."""
@@ -773,35 +790,32 @@ class IVUSDisplay(QGraphicsView):
             self.new_spline.start_coords = (xs[0], ys[0])
 
     def _should_close_contour(self, current_pos) -> bool:
-        """Returns True if user clicks near the start point after placing several points."""
-        if len(self.points_to_draw) <= 3:
-            return False
-            
-        start_x, start_y = self.points_to_draw[0].get_coords()
-        dist = math.hypot(current_pos.x() - start_x, current_pos.y() - start_y)
-        return dist < 20  # Snap distance in pixels
+            if len(self.points_to_draw) < 2: 
+                return False
+                
+            start_x, start_y = self.points_to_draw[0].get_coords()
+            dist = math.hypot(current_pos.x() - start_x, current_pos.y() - start_y)
+            return dist < 20
 
-    def start_contour(self, contour_type: ContourType = None):
-        """
-        Start drawing a new contour of the specified type.
-        
-        Sets the active contour type, clears previous data for this frame,
-        and switches to contour drawing mode.
-        """
-        if contour_type is not None:
-            self.set_active_contour_type(contour_type)
+    def _close_current_spline(self):
+        """Close the current contour and save it."""
+        if self.new_spline is not None:
+            downsampled = downsample(
+                ([self.new_spline.full_contour[0].tolist()], [self.new_spline.full_contour[1].tolist()]),
+                self.n_interactive_points,
+            )
 
-        self.measure_index = None
-        self.main_window.setCursor(Qt.CursorShape.CrossCursor)
-        self.contour_mode = True
-        self.points_to_draw = []
+            key = self.contour_key()
+            self.ensure_main_window_contour_structure(key)
 
-        key = self.contour_key()
-        self.ensure_main_window_contour_structure(key)
+            self.main_window.data[key][0][self.frame] = [
+                point / self.scaling_factor for point in downsampled[0]
+            ]
+            self.main_window.data[key][1][self.frame] = [
+                point / self.scaling_factor for point in downsampled[1]
+            ]
 
-        self.main_window.data[key][0][self.frame] = []
-        self.main_window.data[key][1][self.frame] = []
-        self.display_image(update_contours=True)  # clear previous contour
+        self.stop_contour()
 
     def stop_contour(self):
         """
@@ -821,43 +835,9 @@ class IVUSDisplay(QGraphicsView):
             except Exception as e:
                 logger.debug(f"Could not update longitudinal view for frame {self.frame}: {e}")
 
-    def _handle_item_interaction(self, scene_pos, view_pos):
-        """Handles clicking existing knotpoints or adding new ones to a spline."""
-        items = self.items(view_pos)
-        point_item = next((i for i in items if isinstance(i, Point)), None)
-        spline_item = next((i for i in items if isinstance(i, Spline)), None)
-
-        if point_item and point_item in self.contour_points:
-            self._select_existing_point(point_item)
-        elif spline_item:
-            self._add_new_point_to_spline(scene_pos)
-
-    def _select_existing_point(self, point_item):
-        self.main_window.setCursor(Qt.CursorShape.BlankCursor) # remove cursor for precise contour changes
-        # https://stackoverflow.com/questions/53627056/how-to-get-cursor-click-position-in-qgraphicsitem-coordinate-system
-        self.active_point_index = self.contour_points.index(point_item)
-        point_item.update_color()
-        self.active_point = point_item
-
-    def _add_new_point_to_spline(self, pos):
-        if not self.current_contour:
-            return
-
-        path_index = self.current_contour.on_path(pos)
-        self.main_window.setCursor(Qt.CursorShape.BlankCursor)
-        
-        cfg = self.contour_configs.get(self.active_contour_type)
-        self.active_point = Point(
-            (pos.x(), pos.y()),
-            self.point_thickness,
-            self.point_radius,
-            cfg.color if cfg else self.color_contour,
-            cfg.alpha if cfg else self.alpha_contour,
-        )
-        self.graphics_scene.addItem(self.active_point)
-        self.active_point.update_color()
-        self.active_point_index = self.current_contour.update(pos, self.active_point_index, path_index)
-
+    ######################
+    # Mouse click events #
+    ######################
     def mousePressEvent(self, event):
         pos = self.mapToScene(event.position().toPoint())
         
@@ -881,13 +861,50 @@ class IVUSDisplay(QGraphicsView):
 
         super().mousePressEvent(event)
 
+    def _handle_item_interaction(self, scene_pos, view_pos):
+        """Handles clicking existing knotpoints or adding new ones to a spline."""
+        items = self.items(view_pos)
+        point_item = next((i for i in items if isinstance(i, Point)), None)
+        spline_item = next((i for i in items if isinstance(i, Spline)), None)
+
+        if point_item and point_item in self.contour_points:
+            self._select_existing_point(point_item)
+        elif spline_item:
+            self._add_new_point_to_spline(scene_pos)
+
+    def _select_existing_point(self, point_item):
+        self.main_window.setCursor(Qt.CursorShape.BlankCursor) # remove cursor for precise contour changes
+        # https://stackoverflow.com/questions/53627056/how-to-get-cursor-click-position-in-qgraphicsitem-coordinate-system
+        self.active_point_index = self.contour_points.index(point_item)
+        point_item.update_color()
+        self.active_point = point_item
+
+    def _add_new_point_to_spline(self, pos):
+        if not self.current_spline:
+            return
+
+        path_index = self.current_spline.on_path(pos)
+        self.main_window.setCursor(Qt.CursorShape.BlankCursor)
+        
+        cfg = self.contour_configs.get(self.active_contour_type)
+        self.active_point = Point(
+            (pos.x(), pos.y()),
+            self.point_thickness,
+            self.point_radius,
+            cfg.color if cfg else self.color_contour,
+            cfg.alpha if cfg else self.alpha_contour,
+        )
+        self.graphics_scene.addItem(self.active_point)
+        self.active_point.update_color()
+        self.active_point_index = self.current_spline.update(pos, self.active_point_index, path_index)
+
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton:
             if self.active_point_index is not None:
                 item = self.active_point
                 mouse_position = item.mapFromScene(self.mapToScene(event.pos()))
                 new_point = item.update_pos(mouse_position)
-                self.current_contour.update(new_point, self.active_point_index)
+                self.current_spline.update(new_point, self.active_point_index)
 
         elif event.buttons() == Qt.MouseButton.RightButton:
             self.setMouseTracking(True)
@@ -908,10 +925,10 @@ class IVUSDisplay(QGraphicsView):
                 self.ensure_main_window_contour_structure(key)
 
                 self.main_window.data[key][0][self.frame] = [
-                    point / self.scaling_factor for point in self.current_contour.knot_points[0]
+                    point / self.scaling_factor for point in self.current_spline.knot_points[0]
                 ]
                 self.main_window.data[key][1][self.frame] = [
-                    point / self.scaling_factor for point in self.current_contour.knot_points[1]
+                    point / self.scaling_factor for point in self.current_spline.knot_points[1]
                 ]
                 contour_for_frame = self._get_full_contour_for_frame(self.active_contour_type, self.frame)
                 self.display_image(update_contours=True)
@@ -926,8 +943,10 @@ class IVUSDisplay(QGraphicsView):
             if self.contour_mode:
                 print("Active Point:", self.active_point)
                 print("Active Point Index:", self.active_point_index)
-                self._close_current_contour()
+                print("Main window data:", self.main_window.data)
+                self._close_current_spline()
             else:
                 print("Active Point:", self.active_point)
                 print("Active Point Index:", self.active_point_index)
+                print("Main window data:", self.main_window.data)
                 pass

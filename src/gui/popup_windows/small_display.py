@@ -4,7 +4,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QImage, QPen
 from shapely.geometry import Polygon
 
-from gui.utils.geometry import Spline, Point
+from gui.utils.geometry import SplineGeometry, Spline, Point
 from report.report import farthest_points, closest_points
 import numpy as np
 
@@ -75,7 +75,10 @@ class SmallDisplay(QMainWindow):
             if frame is None:
                 self.pixmap.setPixmap(QPixmap())
                 self.setWindowTitle("No Frame to Display")
-                [self.scene.removeItem(item) for item in self.scene.items() if not isinstance(item, QGraphicsPixmapItem)]
+                items = [item for item in self.scene.items() if not isinstance(item, QGraphicsPixmapItem)]
+                for item in items:
+                    if item.scene() == self.scene:
+                        self.scene.removeItem(item)
                 return
             
             self.pixmap.setPixmap(
@@ -97,16 +100,31 @@ class SmallDisplay(QMainWindow):
 
         if update_contours:
             contour_types = (Spline, Point, QGraphicsLineItem)
-            [self.scene.removeItem(item) for item in self.scene.items() if isinstance(item, contour_types)]
+            items = [item for item in self.scene.items() if isinstance(item, contour_types)]
+            for item in items:
+                if item.scene() == self.scene:
+                    self.scene.removeItem(item)
 
             key = self.main_window.display.contour_key()
             contour_data = self.main_window.data.get(key)
             if contour_data and contour_data[0][frame] and not self.main_window.hide_contours:
                 lumen_x = [point * self.scaling_factor for point in contour_data[0][frame]]
                 lumen_y = [point * self.scaling_factor for point in contour_data[1][frame]]
-                current_contour = Spline([lumen_x, lumen_y], self.n_points_contour, self.contour_thickness, 'green')
+                geometry = SplineGeometry(
+                    lumen_x,
+                    lumen_y,
+                    self.n_points_contour,
+                    None,
+                    None,
+                )
+                geometry.interpolate()
+                current_contour = Spline(
+                    geometry,
+                    'green',
+                    self.contour_thickness,
+                )
 
-                if current_contour.full_contour[0] is not None:
+                if current_contour.geometry.full_contour[0] is not None:
                     self.contour_points = [
                         Point(
                             (current_contour.knot_points[0][i], current_contour.knot_points[1][i]),
@@ -119,7 +137,7 @@ class SmallDisplay(QMainWindow):
                     [self.scene.addItem(point) for point in self.contour_points]
                     self.scene.addItem(current_contour)
                     polygon = Polygon(
-                        [(x, y) for x, y in zip(current_contour.full_contour[0], current_contour.full_contour[1])]
+                        [(x, y) for x, y in zip(current_contour.geometry.full_contour[0], current_contour.geometry.full_contour[1])]
                     )
                     self.view.centerOn(polygon.centroid.x, polygon.centroid.y)
                     _, farthest_x, farthest_y = farthest_points(self.main_window, polygon.exterior.coords, frame)
@@ -146,7 +164,8 @@ class SmallDisplay(QMainWindow):
             # Remove previous correlation text items
             text_items = [item for item in self.scene.items() if isinstance(item, QGraphicsTextItem)]
             for item in text_items:
-                self.scene.removeItem(item)
+                if item.scene() == self.scene:
+                    self.scene.removeItem(item)
             
             # Calculate correlation for this frame
             correlations, frame_indices = self.calculate_correlation(frame)

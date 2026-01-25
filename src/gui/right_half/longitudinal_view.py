@@ -73,20 +73,29 @@ class LongitudinalView(QGraphicsView):
         self.fitInView(self.graphics_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def update_marker(self, frame):
-        [self.graphics_scene.removeItem(item) for item in self.graphics_scene.items() if isinstance(item, Marker)]
+        for item in self.graphics_scene.items():
+            if isinstance(item, Marker):
+                if item.scene() == self.graphics_scene:
+                    self.graphics_scene.removeItem(item)
+        
         marker = Marker(frame, 0, frame, self.image_height)
         self.graphics_scene.addItem(marker)
 
     def lview_contour(self, frame, contour, update=False):
         index = None
-        if self.points_on_marker[frame] is not None:  # remove previous points
+
+        if self.points_on_marker[frame] is not None:
             for point in self.points_on_marker[frame]:
-                self.graphics_scene.removeItem(point)
+                # ONLY remove if the point actually belongs to the current scene
+                if point and point.scene() == self.graphics_scene:
+                    self.graphics_scene.removeItem(point)
 
         if contour is None:  # skip frames without contour (but still remove previous points)
+            self.points_on_marker[frame] = None
             return
         else:
-            contour_x, contour_y = contour
+            contour_x = np.array(contour[0])
+            contour_y = np.array(contour[1])
 
         if update or self.points_on_marker[frame] is None:  # need to find the two closest points to the marker
             distances = contour_x - self.image_height // 2
@@ -116,10 +125,14 @@ class LongitudinalView(QGraphicsView):
                 ),
             )
         for point in self.points_on_marker[frame]:
-            self.graphics_scene.addItem(point)
+                if point.scene() is None:
+                    self.graphics_scene.addItem(point)
 
     def hide_lview_contours(self):
-        [self.graphics_scene.removeItem(item) for item in self.graphics_scene.items() if isinstance(item, Point)]
+        for item in self.graphics_scene.items():
+            if isinstance(item, Point):
+                if item.scene() == self.graphics_scene:
+                    self.graphics_scene.removeItem(item)
 
     def show_lview_contours(self):
         for point in self.points_on_marker:
@@ -133,7 +146,9 @@ class LongitudinalView(QGraphicsView):
         for frame in range(lower_limit, upper_limit):
             if self.points_on_marker[frame] is not None:
                 for point in self.points_on_marker[frame]:
-                    self.graphics_scene.removeItem(point)
+                    if point and point.scene() == self.graphics_scene:
+                        self.graphics_scene.removeItem(point)
+                
                 self.points_on_marker[frame] = None
 
 

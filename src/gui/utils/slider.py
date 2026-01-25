@@ -32,6 +32,10 @@ class Slider(QSlider):
         self.setMaximumSize(QSize(1000, 25))
 
     def set_value(self, value, reset_highlights=True):
+        if hasattr(self.main_window, 'display'):
+            # clean up the scene to avoid potential Qt conflicts for the next frame
+            self.main_window.display.cleanup_temporary_drawing()
+
         self.setValue(value)
         try:  # small display
             next_gated = self.next_gated_frame(set=False)

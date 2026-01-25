@@ -12,8 +12,8 @@ from PyQt6.QtCore import Qt, QLineF, QPointF
 from PyQt6.QtGui import QPixmap, QImage, QColor, QFont, QPen
 from shapely.geometry import Polygon
 
-# from gui.utils.geometry_py import Point, Spline, SplineGeometry, get_qt_pen
-from gui.utils.geometry import Point, Spline, get_qt_pen
+from gui.utils.geometry import Point, Spline, SplineGeometry, get_qt_pen
+# from gui.utils.geometry import Point, Spline, get_qt_pen
 from gui.right_half.longitudinal_view import Marker
 from report.report import compute_polygon_metrics, farthest_points, closest_points
 from segmentation.segment import downsample
@@ -92,6 +92,7 @@ class IVUSDisplay(QGraphicsView):
         self.current_spline: Spline | Tuple[Spline, Spline] = None  # entire contour (not only knotpoints), needed for elliptic ratio
         self.lumen_spline: Spline | Tuple[Spline, Spline] = None
         self.new_spline: Spline | Tuple[Spline, Spline] = None
+        self.current_geometry: list[SplineGeometry] = []
 
         self.active_point: Point = None
         self.active_point_index: int = None
@@ -112,6 +113,24 @@ class IVUSDisplay(QGraphicsView):
         image = QGraphicsPixmapItem(QPixmap(self.image_size, self.image_size))
         self.graphics_scene.addItem(image)
         self.setScene(self.graphics_scene)
+
+    def cleanup_temporary_drawing(self):
+        """Safely removes un-finalized points and splines from the scene."""
+        if hasattr(self, 'new_spline') and self.new_spline:
+            if self.new_spline.scene() is not None:
+                self.graphics_scene.removeItem(self.new_spline)
+            self.new_spline = None
+
+        if hasattr(self, 'points_to_draw'):
+            for point in self.points_to_draw:
+                if point.scene() is not None:
+                    self.graphics_scene.removeItem(point)
+            self.points_to_draw = []
+
+        self.contour_drawn = False
+        self.contour_mode = False 
+        
+        self.main_window.tmp_contours = {}
 
     def set_frame(self, value):
         self.frame = value
@@ -202,13 +221,19 @@ class IVUSDisplay(QGraphicsView):
                     if contour_data and contour_data[0][frame]:
                         xs = contour_data[0][frame]
                         ys = contour_data[1][frame]
-                        spline = Spline(
-                            [xs, ys],
+                        geometry = SplineGeometry(
+                            xs,
+                            ys,
                             self.n_points_contour,
-                            self.contour_thickness,
-                            self.contour_configs[ct].color if ct in self.contour_configs else self.color_contour,
-                            self.contour_configs[ct].alpha if ct in self.contour_configs else self.alpha_contour,
+                            (xs[0], ys[0]),
+                            None,
                         )
+                        spline = Spline(
+                            geometry,
+                            self.contour_configs[ct].color if ct in self.contour_configs else self.color_contour,
+                            self.contour_thickness,
+                            self.contour_configs[ct].alpha if ct in self.contour_configs else self.alpha_contour,
+                        ).full_contours()
                         self.full_contours[key][frame] = spline.get_unscaled_contour(scaling_factor=1)
                     else:
                         self.full_contours[key][frame] = None
@@ -308,7 +333,8 @@ class IVUSDisplay(QGraphicsView):
     def _remove_image_items(self, image_types):
         for it in list(self.graphics_scene.items()):
             if isinstance(it, image_types):
-                self.graphics_scene.removeItem(it)
+                if it.scene() == self.graphics_scene:
+                    self.graphics_scene.removeItem(it)
 
     def _prepare_display_data(self):
         if hasattr(self.main_window, "images_display") and self.main_window.images_display is not None:
@@ -359,30 +385,41 @@ class IVUSDisplay(QGraphicsView):
     def _remove_non_image_items(self, image_types):
         for it in list(self.graphics_scene.items()):
             if not isinstance(it, image_types):
-                self.graphics_scene.removeItem(it)
+                if it.scene() == self.graphics_scene:
+                    self.graphics_scene.removeItem(it)
 
     def _maybe_compute_metrics(self):
-        lc = getattr(self, "lumen_spline", None)
-        if not lc or getattr(lc, "full_contour", None) is None or lc.full_contour[0] is None:
+        ls = getattr(self, "lumen_spline", None)
+        if not ls or getattr(ls.geometry, "full_contour", None) is None:
             return
 
-        x, y = lc.get_unscaled_contour(self.scaling_factor)
+        x, y = ls.get_unscaled_contour(self.scaling_factor)
+
+        if len(x) < 3:
+            return
+
         poly = Polygon(list(zip(x, y)))
+
+        if not poly.is_valid or poly.area == 0:
+            logger.warning("Invalid or zero-area polygon created. Skipping metrics.")
+            return            
+
         lumen_area, lumen_circumf, _, _ = compute_polygon_metrics(self.main_window, poly, self.frame)
         longest_d, far_x, far_y = farthest_points(self.main_window, poly.exterior.coords, self.frame)
         shortest_d, close_x, close_y = closest_points(self.main_window, poly, self.frame)
         eem_area, pct = self.compute_eem_and_percent_stenosis(self.frame, lumen_area)
 
         if not self.main_window.hide_special_points:
+            pen = get_qt_pen('yellow', self.point_thickness * 2, self.alpha_contour)
             self.graphics_scene.addLine(
                 QLineF(far_x[0] * self.scaling_factor, far_y[0] * self.scaling_factor,
-                    far_x[1] * self.scaling_factor, far_y[1] * self.scaling_factor),
-                QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
+                       far_x[1] * self.scaling_factor, far_y[1] * self.scaling_factor),
+                pen,
             )
             self.graphics_scene.addLine(
                 QLineF(close_x[0] * self.scaling_factor, close_y[0] * self.scaling_factor,
-                    close_x[1] * self.scaling_factor, close_y[1] * self.scaling_factor),
-                QPen(Qt.GlobalColor.yellow, self.point_thickness * 2),
+                       close_x[1] * self.scaling_factor, close_y[1] * self.scaling_factor),
+                pen,
             )
 
         ell = (longest_d / shortest_d) if shortest_d else 0
@@ -401,11 +438,13 @@ class IVUSDisplay(QGraphicsView):
             color = Qt.GlobalColor.white
 
         # replace previous phase_text if present
-        if getattr(self, "phase_text", None):
-            try:
-                self.graphics_scene.removeItem(self.phase_text)
-            except Exception:
-                pass
+        phase_text = getattr(self, "phase_text", None)
+        if phase_text:
+            if phase_text.scene() == self.graphics_scene:
+                try:
+                    self.graphics_scene.removeItem(phase_text)
+                except Exception:
+                    pass
 
         self.phase_text = QGraphicsTextItem(text)
         self.phase_text.setDefaultTextColor(color)
@@ -520,8 +559,9 @@ class IVUSDisplay(QGraphicsView):
 
         if not update_phase:
             try:
-                if hasattr(self, "phase_text") and (self.phase_text is not None):
-                    self.graphics_scene.addItem(self.phase_text)
+                if hasattr(self, "phase_text") and self.phase_text is not None:
+                    if self.phase_text.scene() is None:
+                        self.graphics_scene.addItem(self.phase_text)
             except Exception:
                 pass
 
@@ -679,22 +719,30 @@ class IVUSDisplay(QGraphicsView):
         color = cfg.color if cfg else self.color_contour
         alpha = cfg.alpha if cfg else self.alpha_contour
 
-        spline = Spline([lumen_x, lumen_y], self.n_points_contour, thickness, color, alpha)
+        geometry = SplineGeometry(
+            lumen_x, 
+            lumen_y, 
+            self.n_points_contour, 
+            (lumen_x[0], lumen_y[0]), 
+            None
+        )
+        geometry.interpolate()
 
-        if spline.full_contour[0] is not None:
+        if geometry.full_contour[0] is not None:
             knot_points = [
                 Point(
-                    (spline.knot_points[0][i], spline.knot_points[1][i]),
+                    (geometry.knot_points_x[i], geometry.knot_points_y[i]),
                     self.point_thickness,
                     self.point_radius,
                     color,
                     alpha,
                 )
-                for i in range(len(spline.knot_points[0]) - 1)
+                for i in range(len(geometry.knot_points_x) - 1)
             ]
 
             for p in knot_points:
                 self.graphics_scene.addItem(p)
+            spline = Spline(geometry, color, thickness, alpha)
             self.graphics_scene.addItem(spline)
 
             self.full_contours[self.contour_key(ct)][self.frame] = spline.get_unscaled_contour(self.scaling_factor)
@@ -778,16 +826,24 @@ class IVUSDisplay(QGraphicsView):
 
         if not self.contour_drawn:
             cfg = self.contour_configs[self.active_contour_type]
-            self.new_spline = Spline(
-                [xs, ys], self.n_points_contour, self.contour_thickness, cfg.color, cfg.alpha
-            )
             start_coords = (xs[0], ys[0])
-            self.new_spline.start_coords = start_coords
+            geometry = SplineGeometry(
+                xs,
+                ys,
+                self.n_points_contour,
+                start_coords,
+                None,
+            )
+            self.new_spline = Spline(
+                geometry, cfg.color, self.contour_thickness, cfg.alpha
+            )
             self.contour_drawn = True
             self.graphics_scene.addItem(self.new_spline)
         elif self.new_spline:
-            self.new_spline.set_knot_points([xs, ys])
-            self.new_spline.start_coords = (xs[0], ys[0])
+            self.new_spline.geometry.knot_points_x = xs
+            self.new_spline.geometry.knot_points_y = ys
+            self.new_spline.geometry.start_coords = (xs[0], ys[0])
+            self.new_spline._rebuild_path()
 
     def _should_close_contour(self, current_pos) -> bool:
             if len(self.points_to_draw) < 2: 
@@ -801,7 +857,7 @@ class IVUSDisplay(QGraphicsView):
         """Close the current contour and save it."""
         if self.new_spline is not None:
             downsampled = downsample(
-                ([self.new_spline.full_contour[0].tolist()], [self.new_spline.full_contour[1].tolist()]),
+                ([self.new_spline.geometry.full_contour[0].tolist()], [self.new_spline.geometry.full_contour[1].tolist()]),
                 self.n_interactive_points,
             )
 
@@ -884,6 +940,9 @@ class IVUSDisplay(QGraphicsView):
             return
 
         path_index = self.current_spline.on_path(pos)
+        if path_index is None: # Safety check: only add if we actually clicked the path
+            return
+
         self.main_window.setCursor(Qt.CursorShape.BlankCursor)
         
         cfg = self.contour_configs.get(self.active_contour_type)
@@ -895,16 +954,20 @@ class IVUSDisplay(QGraphicsView):
             cfg.alpha if cfg else self.alpha_contour,
         )
         self.graphics_scene.addItem(self.active_point)
+        self.active_point_index = self.current_spline.update(pos, -1, path_index)
+        self.contour_points.insert(self.active_point_index, self.active_point)
+        
         self.active_point.update_color()
-        self.active_point_index = self.current_spline.update(pos, self.active_point_index, path_index)
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.MouseButton.LeftButton:
             if self.active_point_index is not None:
                 item = self.active_point
-                mouse_position = item.mapFromScene(self.mapToScene(event.pos()))
-                new_point = item.update_pos(mouse_position)
-                self.current_spline.update(new_point, self.active_point_index)
+                new_scene_pos = self.mapToScene(event.pos())
+
+                item.update_pos(new_scene_pos)
+                
+                self.current_spline.update(new_scene_pos, self.active_point_index)
 
         elif event.buttons() == Qt.MouseButton.RightButton:
             self.setMouseTracking(True)
